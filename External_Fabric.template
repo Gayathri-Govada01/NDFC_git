@@ -1,0 +1,875 @@
+##template properties
+name =External_Fabric;
+description = Fabric for flexible deployments with a mix of Nexus and Non-Nexus devices.;
+tags =Custom Network;
+userDefined = true;
+supportedPlatforms = All;
+templateType = FABRIC;
+templateSubType = NA;
+contentType = PYTHON;
+implements = ;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+#    Copyright (c) 2019-2023 by Cisco Systems, Inc.
+#    All rights reserved.
+
+@(IsMandatory=true, IsFabricName=true, DisplayName="Fabric Name", Description="Please provide the fabric name to create it (Max Size 64)")
+string FABRIC_NAME{
+  minLength = 1;
+  maxLength = 64;
+};
+@(IsMandatory=true, IsAsn=true, Description="1-4294967295 | 1-65535[.0-65535]<br/>It is a good practice to have a unique ASN for each Fabric.", DisplayName="BGP AS #")
+string BGP_AS{
+minLength=1;
+maxLength=11;
+regularExpr=^(((\+)?[1-9]{1}[0-9]{0,8}|(\+)?[1-3]{1}[0-9]{1,9}|(\+)?[4]{1}([0-1]{1}[0-9]{8}|[2]{1}([0-8]{1}[0-9]{7}|[9]{1}([0-3]{1}[0-9]{6}|[4]{1}([0-8]{1}[0-9]{5}|[9]{1}([0-5]{1}[0-9]{4}|[6]{1}([0-6]{1}[0-9]{3}|[7]{1}([0-1]{1}[0-9]{2}|[2]{1}([0-8]{1}[0-9]{1}|[9]{1}[0-5]{1})))))))))|([1-5]\d{4}|[1-9]\d{0,3}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])(\.([1-5]\d{4}|[1-9]\d{0,3}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5]|0))?)$;
+};
+
+@(IsMandatory=false, IsShow="BOOTSTRAP_ENABLE!=true", Description="If enabled, fabric is only monitored. No configuration will be deployed", IsMonitorMode=true, DisplayName="Fabric Monitor Mode")
+boolean IS_READ_ONLY
+{
+defaultValue=true;
+};
+
+@(IsMandatory=false, Section="Hidden")
+string EXT_FABRIC_TYPE
+{
+defaultValue=Custom Network;
+};
+
+@(IsMandatory=false, NoConfigChg=true, DisplayName="Enable Performance Monitoring <br/> (For NX-OS and IOS XE Switches Only)")
+boolean PM_ENABLE
+{
+defaultValue=false;
+};
+
+@(IsMandatory=false, IsInternal=true)
+boolean PM_ENABLE_PREV
+{
+defaultValue=false;
+};
+
+@(IsMandatory=true, Enum="ps-redundant,combined,insrc-redundant", Description="Default Power Supply Mode For Bootstrapped NX-OS Switches", DisplayName="Power Supply Mode", Section="Advanced")
+string POWER_REDUNDANCY_MODE
+{
+defaultValue=ps-redundant;
+};
+
+@(IsMandatory=false, DisplayName="Enable MPLS Handoff", Section="Advanced")
+boolean MPLS_HANDOFF
+{
+defaultValue=false;
+};
+
+@(IsMandatory=true, IsShow="MPLS_HANDOFF==true", Description="(Min:0, Max:1023)", DisplayName="Underlay MPLS Loopback Id", Section="Advanced")
+integer MPLS_LB_ID{
+min=0;
+max=1023;
+defaultValue=101;
+};
+
+@(IsMandatory=false, Description="Enable only, when IP Authorization is enabled in the AAA Server", DisplayName="Enable AAA IP Authorization", Section="Advanced")
+boolean AAA_REMOTE_IP_ENABLED
+{
+defaultValue=false;
+};
+
+
+@(IsMandatory=false, DisplayName="Enable NDFC as Trap Host", Section="Advanced", Description="Configure NDFC as a receiver for SNMP traps")
+boolean SNMP_SERVER_HOST_TRAP
+{
+defaultValue=true;
+};
+
+@(IsMandatory=false, DisplayName="Enable CDP for Bootstrapped Switch", Description="Enable CDP on management interface", Section="Advanced")
+boolean CDP_ENABLE
+{
+defaultValue=false;
+};
+
+@(IsMandatory=false, DisplayName="Enable NX-API", Description="Enable HTTPS NX-API", Section="Advanced")
+boolean ENABLE_NXAPI
+{
+defaultValue=false;
+};
+
+@(IsMandatory=false, IsShow="ENABLE_NXAPI==true", DisplayName="NX-API HTTPS Port Number", Section="Advanced")
+integer NXAPI_HTTPS_PORT
+{
+min = 1;
+max = 65535;
+defaultValue=443;
+};
+
+@(IsMandatory=false, IsShow="ENABLE_NXAPI==true", DisplayName="Enable HTTP NX-API", Section="Advanced")
+boolean ENABLE_NXAPI_HTTP
+{
+defaultValue=false;
+};
+
+@(IsMandatory=false, IsShow="ENABLE_NXAPI_HTTP==true", DisplayName="NX-API HTTP Port Number", Section="Advanced")
+integer NXAPI_HTTP_PORT
+{
+min = 1;
+max = 65535;
+defaultValue=80;
+};
+
+@(IsMandatory=false, DisplayName="Inband Mgmt", Description="Import switches with inband connectivity", Section="Advanced")
+boolean INBAND_MGMT
+{
+defaultValue=false;
+};
+
+@(IsMandatory=false, IsInternal=true)
+boolean INBAND_MGMT_PREV
+{
+defaultValue=false;
+};
+
+@(IsMandatory=false, DisplayName="Enable Precision Time Protocol (PTP)", Section="Advanced")
+boolean FEATURE_PTP {
+defaultValue=false;
+};
+
+@(IsMandatory=true, IsShow="FEATURE_PTP==true", Description="(Min:0, Max:1023)", DisplayName="PTP Source Loopback Id", Section="Advanced")
+integer PTP_LB_ID
+{
+min = 0;
+max = 1023;
+defaultValue=0;
+};
+
+@(IsMandatory=true, IsShow="FEATURE_PTP==true", Description="Multiple Independent PTP Clocking Subdomains <br/>on a Single Network (Min:0, Max:127)", DisplayName="PTP Domain Id", Section="Advanced")
+integer PTP_DOMAIN_ID
+{
+min = 0;
+max = 127;
+defaultValue=0;
+};
+
+@(IsMandatory=true, IsInternal=true)
+boolean FEATURE_PTP_INTERNAL
+{
+defaultValue=false;
+};
+
+@(IsMandatory=false, DisplayName="Enable Real Time Interface Statistics Collection", Description="Valid for NX-OS only", Section="Advanced")
+boolean ENABLE_RT_INTF_STATS
+{
+defaultValue=false;
+};
+
+@(IsMandatory="ENABLE_RT_INTF_STATS==true", IsShow="ENABLE_RT_INTF_STATS==true", DisplayName="Interface Statistics Load Interval", Description="Time in seconds<br/>(Min:5, Max:300)", Section="Advanced")
+integer INTF_STAT_LOAD_INTERVAL{
+min=5;
+max=300;
+defaultValue=10;
+};
+
+@(IsMandatory=false, IsMultiLineString=true, DisplayName="Fabric Freeform", Description="Additional supported CLIs for all same OS (e.g. all NxOS or IOS-XE, etc) switches", Section="Advanced")
+string FABRIC_FREEFORM;
+
+@(IsMandatory=false, IsMultiLineString=true, DisplayName="AAA Freeform Config", Description="AAA Configurations", Section="Advanced")
+string AAA_SERVER_CONF;
+
+@(IsMandatory=false, IsFreezeMode=true, DisplayName="Disable all deployments in this fabric", Section="Hidden")
+boolean DEPLOYMENT_FREEZE
+{
+defaultValue=false;
+};
+
+@(IsMandatory=true, IsDot1qIdRange=true, Description="Per Border Dot1q Range For VRF Lite Connectivity (Min:2, Max:4093)", DisplayName="Subinterface Dot1q Range", Section="Resources")
+integerRange SUBINTERFACE_RANGE
+{
+min=2;
+max=4093;
+defaultValue=2-511;
+};
+@(IsMandatory=false, Description="Typically Loopback0 IP Address Range", DisplayName="Underlay Routing Loopback IP <br/>Range", Section="Hidden")
+ipV4AddressWithSubnet LOOPBACK0_IP_RANGE
+{
+defaultValue=10.1.0.0/22;
+};
+
+@(IsMandatory=true, IsShow="MPLS_HANDOFF==true", Description="MPLS Loopback IP Address Range", DisplayName="Underlay MPLS Loopback IP Range", Section="Resources")
+ipV4AddressWithSubnet MPLS_LOOPBACK_IP_RANGE
+{
+defaultValue=10.102.0.0/25;
+};
+
+@(IsMandatory=true, IsFabricTechnology=true, IsFabricType=true, DisplayName="Fabric Type", ReadOnly=true, Section="Hidden")
+string FABRIC_TYPE
+{
+defaultValue=External;
+};
+@(IsMandatory=true, DisplayName="Template Family", Section="Hidden")
+string FF
+{
+defaultValue=External;
+};
+
+@(IsMandatory=false, IsInternal=true)
+string MSO_SITE_ID;
+@(IsMandatory=false, IsInternal=true)
+string MSO_CONTROLER_ID;
+@(IsMandatory=false, IsInternal=true)
+string MSO_SITE_GROUP_NAME;
+@(IsMandatory=false, IsInternal=true)
+string PREMSO_PARENT_FABRIC;
+@(IsMandatory=false, IsInternal=true)
+string MSO_CONNECTIVITY_DEPLOYED;
+
+#Configuration Backup settings
+@(IsMandatory=false, NoConfigChg=true, Description="Backup hourly only if there is any config deployment since last backup", DisplayName="Hourly Fabric Backup", Section="Configuration Backup")
+boolean enableRealTimeBackup;
+@(IsMandatory=false, NoConfigChg=true, Description="Backup at the specified time", DisplayName="Scheduled Fabric Backup", Section="Configuration Backup")
+boolean enableScheduledBackup;
+@(IsMandatory=true, NoConfigChg=true, IsShow="enableScheduledBackup==true",Description="Time (UTC) in 24hr format. (00:00 to 23:59)", DisplayName="Scheduled Time", Section="Configuration Backup")
+string scheduledTime
+{
+    regularExpr=^([01]\d|2[0-3]):([0-5]\d)$;
+
+};
+
+@(IsMandatory=false, NoConfigChg=true, IsShow="IS_READ_ONLY!=true", IsDhcpFlag=true, Description="Automatic IP Assignment For POAP", DisplayName="Enable Bootstrap <br/> (For NX-OS and IOS XE(Cat9K) Switches Only)", Section="Bootstrap")
+boolean BOOTSTRAP_ENABLE{
+defaultValue=false;
+};
+
+@(IsMandatory=false, IsShow="BOOTSTRAP_ENABLE==true && INBAND_MGMT==true", Description="Enable POAP over Inband Interface (Pre-req: Inband Mgmt Knob should be Enabled)", DisplayName="Enable Inband POAP", Section="Bootstrap")
+boolean INBAND_ENABLE{
+defaultValue=false;
+};
+
+@(IsMandatory=false, IsInternal=true, Section="Bootstrap")
+boolean INBAND_ENABLE_PREV
+{
+defaultValue=false;
+};
+
+
+@(IsMandatory=false, NoConfigChg=true, IsShow="BOOTSTRAP_ENABLE==true", Description="Automatic IP Assignment For POAP From Local DHCP Server", DisplayName="Enable Local DHCP Server", Section="Bootstrap")
+boolean DHCP_ENABLE{
+defaultValue=false;
+};
+
+@(IsMandatory=false, NoConfigChg=true, IsShow="BOOTSTRAP_ENABLE==true && INBAND_MGMT==false ", Description="Enable Plug n Play (Automatic IP Assignment) for Cat9K switches", DisplayName="Enable Plug n Play for Cat9K", Section="Bootstrap")
+boolean PNP_ENABLE{
+defaultValue=false;
+};
+
+@(IsMandatory=false, NoConfigChg=true, Enum="DHCPv4,DHCPv6", IsShow="DHCP_ENABLE==true && BOOTSTRAP_ENABLE==true", DisplayName="DHCP Version", Section="Bootstrap")
+string DHCP_IPV6_ENABLE{
+defaultValue=DHCPv4;
+};
+
+@(IsMandatory=true, NoConfigChg=true, IsShow="DHCP_ENABLE==true && BOOTSTRAP_ENABLE==true", Description="Domain name for DHCP server PnP block", DisplayName="Domain name", Section="Bootstrap")
+string DOMAIN_NAME {
+regularExpr=^((?!-)[A-Za-z0-9-]{1,63}(?<!-)\.)+[A-Za-z]{2,6}$;
+};
+
+@(IsMandatory=true, NoConfigChg=true, IsShow="DHCP_ENABLE==true && BOOTSTRAP_ENABLE==true", Description="Start Address For Switch POAP", DisplayName="DHCP Scope Start Address", Section="Bootstrap")
+ipAddress DHCP_START;
+
+@(IsMandatory=true, NoConfigChg=true, IsShow="DHCP_ENABLE==true && BOOTSTRAP_ENABLE==true", Description="End Address For Switch POAP", DisplayName="DHCP Scope End Address", Section="Bootstrap")
+ipAddress DHCP_END;
+
+@(IsMandatory=true, NoConfigChg=true, IsShow="DHCP_ENABLE==true && BOOTSTRAP_ENABLE==true", Description="Default Gateway For Management VRF On The Switch", DisplayName="Switch Mgmt Default Gateway", Section="Bootstrap")
+ipAddress MGMT_GW;
+
+@(IsMandatory=true, NoConfigChg=true, IsShow="DHCP_ENABLE==true && BOOTSTRAP_ENABLE==true && DHCP_IPV6_ENABLE==DHCPv4", Description="(Min:8, Max:30)", DisplayName="Switch Mgmt IP Subnet Prefix", Section="Bootstrap")
+integer MGMT_PREFIX
+{
+min = 8;
+max = 30;
+defaultValue=24;
+};
+
+@(IsMandatory=false, NoConfigChg=true, IsShow="DHCP_ENABLE==true && BOOTSTRAP_ENABLE==true && DHCP_IPV6_ENABLE==DHCPv6", Description="(Min:64, Max:126)", DisplayName="Switch Mgmt IPv6 Subnet Prefix", Section="Bootstrap")
+integer MGMT_V6PREFIX
+{
+min = 64;
+max = 126;
+defaultValue=64;
+};
+
+@(IsMandatory=false, NoConfigChg=true, IsShow="BOOTSTRAP_ENABLE==true", Description="Include AAA configs from Advanced tab during device bootup", DisplayName="Enable AAA Config", Section="Bootstrap")
+boolean ENABLE_AAA{
+defaultValue = false;
+};
+
+@(IsMandatory=false, IsShow="BOOTSTRAP_ENABLE==true", IsMultiLineString=true, DisplayName="Bootstrap Freeform Config (NX-OS)", Description="Additional CLIs required during device bootup/login e.g. AAA/Radius", Section="Bootstrap")
+string BOOTSTRAP_CONF;
+
+@(IsMandatory=false, IsShow="BOOTSTRAP_ENABLE==true", IsMultiLineString=true, DisplayName="Bootstrap Freeform Config (IOS XE)", Description="Additional CLIs required during device bootup/login e.g. AAA/Radius", Section="Bootstrap")
+string BOOTSTRAP_CONF_XE;
+
+@(IsMandatory=false, NoConfigChg=true, IsShow="DHCP_ENABLE==true && BOOTSTRAP_ENABLE==true", IsMultiLineString=true, DisplayName="DHCPv4 Multi Subnet Scope",  Description="lines with # prefix are ignored here", Warning="Enter One Subnet Scope per line. <br/> Start_IP, End_IP, Gateway, Prefix <br/> e.g. <br>10.6.0.2, 10.6.0.9, 10.6.0.1, 24 <br>10.7.0.2, 10.7.0.9, 10.7.0.1, 24", Section="Bootstrap")
+string BOOTSTRAP_MULTISUBNET
+{
+defaultValue=#Scope_Start_IP, Scope_End_IP, Scope_Default_Gateway, Scope_Subnet_Prefix;
+};
+
+@(IsMandatory=false, Description="Address range to assign P2P DCI Links", DisplayName="DCI Subnet IP Range", Section="Hidden")
+ipV4AddressWithSubnet DCI_SUBNET_RANGE
+{
+defaultValue=10.10.1.0/24;
+};
+
+@(IsMandatory=false, Description="Target Mask for Subnet Range (Min:8, Max:31)", DisplayName="Subnet Target Mask", Section="Hidden")
+integer DCI_SUBNET_TARGET_MASK
+{
+min = 8;
+max = 31;
+defaultValue=30;
+};
+
+@(IsMandatory=false, Description="Enable Netflow on VTEPs", DisplayName="Enable Netflow", Section="Flow Monitor")
+boolean ENABLE_NETFLOW
+{
+defaultValue=false;
+};
+
+@(IsMandatory=false, IsInternal=true)
+boolean ENABLE_NETFLOW_PREV;
+
+@(IsMandatory=true, IsShow="ENABLE_NETFLOW==true", Description="One or Multiple Netflow Exporters", DisplayName="Netflow Exporter", Section="Flow Monitor")
+struct ITEM {
+  @(IsMandatory=true, DisplayName="Exporter Name")
+  string EXPORTER_NAME;
+  @(IsMandatory=true, DisplayName="IP")
+  ipV4Address IP;
+  @(IsMandatory=false, DisplayName="VRF")
+  string VRF;
+  @(IsMandatory=true, DisplayName="Source Interface")
+  interface SRC_IF_NAME;
+  @(IsMandatory=true, DisplayName="UDP Port")
+  integer UDP_PORT;
+} NETFLOW_EXPORTER_LIST[];
+
+@(IsMandatory=true, IsShow="ENABLE_NETFLOW==true", Description="One or Multiple Netflow Records", DisplayName="Netflow Record", Section="Flow Monitor")
+struct ITEM {
+  @(IsMandatory=true, DisplayName="Record Name")
+  string RECORD_NAME;
+  @(IsMandatory=true, DisplayName="Record Template")
+  #@(IsMandatory=true, Enum="%TEMPLATES.QoS_Cloud", DisplayName="Record Template")
+  string RECORD_TEMPLATE
+  {
+    defaultValue=netflow_ipv4_record;
+  };
+  @(IsMandatory=false, DisplayName="Is Layer2 Record")
+  boolean LAYER2_RECORD {
+    defaultValue=false;
+  };
+} NETFLOW_RECORD_LIST[];
+
+@(IsMandatory=true, IsShow="ENABLE_NETFLOW==true", Description="One or Multiple Netflow Monitors", DisplayName="Netflow Monitor", Section="Flow Monitor")
+struct ITEM {
+  @(IsMandatory=true, DisplayName="Monitor Name")
+  string MONITOR_NAME;
+  @(IsMandatory=true, DisplayName="Record Name")
+  string RECORD_NAME;
+  @(IsMandatory=true, DisplayName="Exporter1 Name")
+  string EXPORTER1;
+  @(IsMandatory=false, DisplayName="Exporter2 Name")
+  string EXPORTER2;
+} NETFLOW_MONITOR_LIST[];
+
+@(IsMandatory=false, IsShow="ENABLE_NETFLOW==true", Description="One or multiple netflow samplers. Applicable to N7K only", DisplayName="Netflow Sampler", Section="Flow Monitor")
+struct ITEM {
+  @(IsMandatory=true, DisplayName="Sampler Name")
+  string SAMPLER_NAME;
+  @(IsMandatory=true, DisplayName="Number of Samples", Description="Number of samples per sampling - 63 max")
+  integer NUM_SAMPLES {
+    min = 1;
+    max = 63;
+  };
+  @(IsMandatory=true, DisplayName="Number of Packets in Each Sampling", Description="Max: 131071 for M3/F3 only VDC & version 9, 8191 for other card types")
+  integer SAMPLING_RATE {
+    min = 1;
+    max = 131071;
+  };
+} NETFLOW_SAMPLER_LIST[];
+
+@(IsMandatory=false, DisplayName="Enable Nexus Cloud", Description="Allow onboarding of this fabric to Nexus Cloud", Section="Nexus Cloud")
+boolean ALLOW_NXC
+{
+defaultValue=true;
+};
+
+@(IsMandatory=false, IsInternal=true)
+boolean ALLOW_NXC_PREV;
+
+@(IsMandatory=false, IsShow="ALLOW_NXC==true", DisplayName="Overwrite Global NxCloud Settings", Description="If enabled, Fabric NxCloud Settings will be used", Section="Nexus Cloud")
+boolean OVERWRITE_GLOBAL_NXC
+{
+defaultValue=false;
+};
+
+@(IsMandatory="OVERWRITE_GLOBAL_NXC==true", IsShow="OVERWRITE_GLOBAL_NXC==true", DisplayName="Intersight Destination VRF", Description="VRF to be used to reach Nexus Cloud, enter 'management' for management VRF and 'default' for default VRF", Section="Nexus Cloud")
+string NXC_DEST_VRF
+{
+minLength = 1;
+maxLength = 32;
+defaultValue=management;
+};
+
+@(IsMandatory="OVERWRITE_GLOBAL_NXC==true && NXC_DEST_VRF!=management", IsShow="OVERWRITE_GLOBAL_NXC==true && NXC_DEST_VRF!=management", DisplayName="Intersight Source Interface", Description="Source interface for communication to Nexus Cloud, mandatory if Destination VRF is not management, supported interfaces: loopback, port-channel, vlan", Section="Nexus Cloud")
+interface NXC_SRC_INTF;
+
+@(IsMandatory=false, IsShow="OVERWRITE_GLOBAL_NXC==true", DisplayName="Intersight Proxy Server", Description="IPv4 or IPv6 address, or DNS name of the proxy server", Section="Nexus Cloud")
+string NXC_PROXY_SERVER;
+
+@(IsMandatory="NXC_PROXY_SERVER!=null", IsShow="NXC_PROXY_SERVER!=null", DisplayName="Proxy Server Port", Description="Proxy port number, default is 8080", Section="Nexus Cloud")
+integer NXC_PROXY_PORT
+{
+min = 1;
+max = 65535;
+defaultValue = 8080;
+};
+
+@(IsMandatory=false, NoConfigChg=true, IsInternal=true, Section="Bootstrap")
+ipAddress DHCP_START_INTERNAL;
+
+@(IsMandatory=false, NoConfigChg=true, IsInternal=true, Section="Bootstrap")
+ipAddress DHCP_END_INTERNAL;
+
+@(IsMandatory=false, NoConfigChg=true, IsInternal=true, Section="Bootstrap")
+ipAddress MGMT_GW_INTERNAL;
+
+@(IsMandatory=false, NoConfigChg=true, IsInternal=true, Section="Bootstrap")
+integer MGMT_PREFIX_INTERNAL;
+
+@(IsMandatory=false, NoConfigChg=true, IsInternal=true, Section="Bootstrap")
+string BOOTSTRAP_MULTISUBNET_INTERNAL;
+
+@(IsMandatory=false, NoConfigChg=true, IsInternal=true, Section="Bootstrap")
+integer MGMT_V6PREFIX_INTERNAL;
+
+@(IsMandatory=false, NoConfigChg=true, IsInternal=true, Section="Bootstrap")
+string DHCP_IPV6_ENABLE_INTERNAL;
+
+@(IsMandatory=false, NoConfigChg=true, IsInternal=true, Section="Bootstrap")
+ipV4Address DOMAIN_NAME_INTERNAL;
+
+@(IsMandatory=false, NoConfigChg=true, IsInternal=true, Section="Bootstrap")
+boolean PNP_ENABLE_INTERNAL;
+
+
+
+##
+##template content
+from com.cisco.dcbu.vinci.rest.services.jython import *
+from com.cisco.dcbu.vinci.rest.services.jython import Helper
+from com.cisco.dcbu.vinci.rest.services.jython import PTIWrapper as PTI
+from com.cisco.dcbu.vinci.rest.services.jython import ResourceManagerWrapper as RM
+from com.cisco.dcbu.vinci.rest.services.jython import BackupRestoreWrapper as BRW
+from com.cisco.dcbu.vinci.rest.services.jython import Wrapper
+from com.cisco.dcbu.vinci.rest.services.jython import WrappersResp
+from com.cisco.dcbu.vinci.rest.services.jython import FabricWrapper
+
+from topology import *
+from utility import *
+import sys, traceback
+import copy
+from functools import reduce
+
+def capabilities(dictonaryObj):
+    Wrapper.print("==========capabilities==========")
+    Wrapper.print("Fabric Name = %s" % FABRIC_NAME)
+    Wrapper.print("Number of keys = %d" % len(dictonaryObj))
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    respObj.setValue(['fabricInit', 'preFabricDelete', 'fabricDelete', 'preAdd', 'postAdd'])
+    return respObj
+
+# Note: This is invoked from LAN_Classic template also
+def preUpgrade(dictionaryObj):
+    funcName = sys._getframe(0).f_code.co_name
+    Wrapper.print("==========ACTION: FAB [%s]: Start: %s" % (FABRIC_NAME, funcName))
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    try:
+        dictionaryObj["FABRIC_NAME"] = FABRIC_NAME
+
+        respObj = PTI.executePyTemplateMethod("preUpgrade_ExtFab", dictionaryObj, "preUpgrade")
+    except respObjError as e:
+        respObj = e.value
+    finally:
+        Wrapper.print("==========ACTION: FAB [%s]: Finish: %s: Success = [%r]" %
+                (FABRIC_NAME, funcName, respObj.isRetCodeSuccess()))
+        return respObj
+
+#for now return SUCCESS
+def fabricInit(dictonaryObj):
+    funcName = sys._getframe(0).f_code.co_name
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    Wrapper.print("==========ACTION: FAB [%s]: Start: %s" % (FABRIC_NAME, funcName))
+    try:
+        Util.exe(actionAllow())
+        FabricWrapper.update(FABRIC_NAME, "FABRIC_TYPE", "External")
+        #Validate BGP AS number
+        respObj = Helper.isValidAsn (BGP_AS)
+        if not respObj.isRetCodeSuccess():
+            return respObj
+        else:
+            Wrapper.print("fabricInit: ASN is Valid")
+
+        fabricSettings = Util.exe(FabricWrapper.get(FABRIC_NAME)).getNvPairs()
+        pmEnable = fabricSettings.get("PM_ENABLE", "false")
+        pmEnablePrev = fabricSettings.get("PM_ENABLE_PREV", "false")
+        if pmEnable != pmEnablePrev:
+            turnOnPM = True if pmEnable == "true" else False
+            isFeatEnabled = Util.exe(FabricWrapper.isFeatureEnabled("pm"))
+            if isFeatEnabled:
+                FabricWrapper.enOrDisFabricPM(FABRIC_NAME, turnOnPM)
+            else:
+                pmForceUpd = "false" if fabricSettings.get("PM_FORCE_UPD", "true") == "true" else "true"
+                FabricWrapper.update(FABRIC_NAME,"PM_FORCE_UPD", pmForceUpd)
+                respObj.addErrorReport("fabricInit", "Performance Monitoring feature is not started. "
+                                       "Please start Performance Monitoring from Feature Management and retry this operation.")
+                respObj.setFailureRetCode()
+                return respObj
+
+        inbandMgmt = fabricSettings.get("INBAND_MGMT", "false")
+        inbandMgmtPrev = fabricSettings.get("INBAND_MGMT_PREV", "false")
+
+        inbandPOAPEnable = fabricSettings.get("INBAND_ENABLE", "false")
+        inbandPOAPEnablePrev = fabricSettings.get("INBAND_ENABLE_PREV", "false")
+        dhcpEnable = fabricSettings.get("DHCP_ENABLE", "false")        
+
+        Wrapper.print("InbandMgmt[%s] InbandMgmtPrev[%s] InbandPOAP[%s] InbandPOAPPrev[%s] DHCP[%s]" % (inbandMgmt, inbandMgmtPrev, inbandPOAPEnable, inbandPOAPEnablePrev, dhcpEnable))
+                
+        if inbandMgmt != inbandMgmtPrev:
+            topologyDataObj = TopologyData(Util.exe(TopologyWrapper.get(FABRIC_NAME)))
+            devices = filter(None, (topologyDataObj.get(TopologyInfoType.SWITCHES)))  # all devices serial number
+            for device in devices:
+                ptiList = Util.exe(PTI.get(device, "SWITCH", "SWITCH", "", "import_type"))
+                if len(ptiList) > 0 and ptiList[0].nvPairs.get("TYPE") == "inband":
+                    respObj.addErrorReport(funcName, "Fabric Settings cannot be changed for Inband Mgmt, when switches are already imported using Inband Ip. "
+                                           "Please remove the exiting switches imported using Inband Ip from the fabric, then change the Fabric Settings")
+                    respObj.setFailureRetCode()
+                    return respObj
+                    
+            #Cannot disable Inband management if Inband POAP has been enabled.
+            if inbandMgmt != "true":
+                if inbandPOAPEnablePrev == "true":
+                    respObj.addErrorReport(funcName, "Inband Mgmt in Fabric Settings cannot be disabled if Inband POAP has been enabled")
+                    respObj.setFailureRetCode()
+                    return respObj
+    
+        if inbandPOAPEnable != inbandPOAPEnablePrev:
+            if inbandPOAPEnable == "true" or inbandPOAPEnablePrev == "true":
+                #Dont allow inband POAP knob to be toggled if DHCP scopes are already present
+                dhcpStart = fabricSettings.get("DHCP_START", "")
+                dhcpStartPrev = fabricSettings.get("DHCP_START_INTERNAL", "")
+                if dhcpStartPrev != "":
+                    respObj.addErrorReport(funcName, "Inband POAP or Inband Mgmt cannot be toggled when DHCP scopes have already been defined")
+                    respObj.setFailureRetCode()
+                    return respObj                          
+                    
+                    
+        # Initialization of resource manager for Overlay and Underlay Resources (port-channel and other IDs).
+
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "LOOPBACK0_IP_POOL", PoolType.IP, LOOPBACK0_IP_RANGE))
+        Util.exe(RM.addOrUpdateEmptyPool(FABRIC_NAME, "LOOPBACK_IPV6_POOL", PoolType.IP))
+        if MPLS_HANDOFF == "true":
+            Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "MPLS_LOOPBACK_IP_POOL", PoolType.IP, MPLS_LOOPBACK_IP_RANGE))
+        # Loopback pool should be 2-199, 201-1000 once RM get/set is working with range.
+        # 0,1,254,255 reserved for underlay - bgp, nve, border gateway, anycast rp loopbacks
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "LOOPBACK_ID", "0-512"))
+        # PC ID pool should be 1-499, 501-4096 once RM get/set is working with range.
+        # 500 is reserved for for underlay - vpc peer link port-channel and vpc id
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "PORT_CHANNEL_ID", "501-4000"))
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "FEX_ID", "101-199"))
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "VPC_ID", "1-100, 200-499"))
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "VPC_DOMAIN_ID", "1-1000"))
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "ROUTE_MAP_SEQUENCE_NUMBER_POOL", "1-1000"))
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "PORT_CHANNEL_ID_IOS_XE", "1-128"))
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "INSTANCE_ID", "1-65335"))
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "TUNNEL_ID_IOS_XE", "1-500"))
+
+        # Initialization of resource manager for Overlay Resources.
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "TOP_DOWN_L3_DOT1Q", SUBINTERFACE_RANGE))
+        Util.exe(RM.addOrUpdatePoolData(FABRIC_NAME, "DCI subnet pool", PoolType.SUBNET, DCI_SUBNET_RANGE,
+                                        DCI_SUBNET_TARGET_MASK))
+        Util.exe(RM.addOrUpdateEmptyPool(FABRIC_NAME, "IPv6 DCI subnet pool", PoolType.SUBNET))
+        Wrapper.print("FABRIC_NAME [%s] Empty IPv6 DCI Subnet range, ignore" % FABRIC_NAME)
+
+        # Initialize IsShow dependent variables to their default values if
+        # they are set to blank by the backend because the IsShow evaluation is False.
+        # Only variables that are identified to show different behavior from 11.3 if
+        # they are left blank are initialized.
+        if ENABLE_NXAPI_HTTP == "":
+            fabricSettings["ENABLE_NXAPI_HTTP"] = "false"
+        if NXAPI_HTTPS_PORT == "":
+            fabricSettings["NXAPI_HTTPS_PORT"] = "443"
+        if NXAPI_HTTP_PORT == "":
+            fabricSettings["NXAPI_HTTP_PORT"] = "80"
+        if DHCP_ENABLE == "":
+            fabricSettings["DHCP_ENABLE"] = "false"
+        if DHCP_ENABLE == "true" and DHCP_IPV6_ENABLE == "":
+            fabricSettings["DHCP_IPV6_ENABLE"] = "DHCPv4"
+            fabricSettings["MGMT_PREFIX"] = "24"
+        fabricSettings["INBAND_MGMT_PREV"] = inbandMgmt 
+        fabricSettings["PM_ENABLE_PREV"] = pmEnable
+        fabricSettings["INBAND_ENABLE_PREV"] = inbandPOAPEnable
+        # show the example if DHCP is enabled later
+        if DHCP_ENABLE != "true" and BOOTSTRAP_MULTISUBNET == "":
+            fabricSettings["BOOTSTRAP_MULTISUBNET"] = "#Scope_Start_IP, Scope_End_IP, Scope_Default_Gateway, Scope_Subnet_Prefix"
+
+        FabricWrapper.update(FABRIC_NAME, fabricSettings)
+
+        dictonaryObj.update({"FABRIC_NAME": FABRIC_NAME})
+
+        # Validate additional settings
+        dictonaryObj["FABRIC_VALIDATION_PARAMS"] = {"validateNetflowSettings" : True,
+                                                    "validateNxCloudSettings" : True,
+                                                    "validateLanDeviceConnectivityMode" : True}
+        dictonaryObj["FABRIC_INIT"] = True
+        Util.exe(PTI.executePyTemplateMethod("fabric_utility_11_1", dictonaryObj, "validateInitFabricSettings"))
+
+        # validation passes. Update if applicable
+        allowNxc = fabricSettings.get("ALLOW_NXC", "false")
+        allowNxcPrev = fabricSettings.get("ALLOW_NXC_PREV", "false")
+        if allowNxcPrev != allowNxc:
+            Util.exe(FabricWrapper.update(FABRIC_NAME, "ALLOW_NXC_PREV", allowNxc))
+
+        # dhcp initialization for DHCP IPs provided in bootstrap section.
+        Util.exe(dhcpInit(dictonaryObj))
+
+        Util.exe(BRW.CreateBackUpJob(FABRIC_NAME, enableRealTimeBackup, enableScheduledBackup, scheduledTime))
+        if IS_READ_ONLY == "true":
+            topologyDataObj = TopologyData(Util.exe(TopologyWrapper.get(FABRIC_NAME)))
+            devices = filter(None, (topologyDataObj.get(TopologyInfoType.SWITCHES)))  # all devices serial number
+            for deviceSn in devices:
+                FabricWrapper.updateSwitchCfgStateForMigrationMode(deviceSn)
+ 
+    except Exception as e:
+        if isinstance(e, respObjError):
+            Util.processRespObj(respObj, e.value)
+        else:
+            Util.handleException("Unexpected error creating fabric", e, respObj)
+    finally:
+        Wrapper.print("==========ACTION: FAB [%s]: Finish: %s: Success = [%r]" %
+                (FABRIC_NAME, funcName, respObj.isRetCodeSuccess()))
+    return respObj
+
+#for now return SUCCESS
+def fabricEdit(dictonaryObj):
+    Wrapper.print("==========ExternalFabricEdit==========")
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    return respObj
+
+def getGlobals(additionalDict=None):
+    newDict = {}
+    gDict = globals()
+    for key in gDict.keys():
+        if ((type(gDict[key]) is str) or
+            (type(gDict[key]) is dict)):
+            newDict[key] = gDict[key]
+    if additionalDict:
+        newDict.update(additionalDict)
+    return newDict
+
+# Note: This is invoked from LAN_Classic template also
+def preFabricDelete(dictionaryObj):
+    funcName = sys._getframe(0).f_code.co_name
+    Wrapper.print("==========ACTION: FAB [%s]: Start: %s" % (FABRIC_NAME, funcName))
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    try:
+        extFabricType = EXT_FABRIC_TYPE
+    except:
+        extFabricType = "Unknown External"
+    dictionaryObj["FABRIC_NAME"] = FABRIC_NAME
+    dictionaryObj["EXT_FABRIC_TYPE"] = extFabricType
+    try:
+        respObj = PTI.executePyTemplateMethod("preFabricDelete_ExtFab", dictionaryObj, "preFabricDelete")
+    except respObjError as e:
+        respObj = e.value
+    finally:
+        Wrapper.print("==========ACTION: FAB [%s]: Finish: %s:. Success = [%r]" % \
+                    (FABRIC_NAME, funcName, respObj.isRetCodeSuccess()))
+    return respObj
+
+def getFabErrEntity(fnName, entityName=None):
+   if entityName:
+      return fnName + ":" + entityName
+   else:
+      return fnName
+
+#for now return SUCCESS
+def fabricDelete(dictonaryObj):
+    try:
+       Util.exe(actionAllow())
+    except respObjError as e:
+       return e.value
+    Wrapper.print("==========ExternalFabricDelete==========")
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    return respObj
+
+def preAdd(dictonaryObj):
+    respObj = WrappersResp.getRespObj()
+    Wrapper.print("preAdd Fabric Name = %s" % FABRIC_NAME)
+    Wrapper.print("Number of keys = %d" % len(dictonaryObj))
+    respObj.setSuccessRetCode()
+    return respObj
+
+def processUpgradeRespObjWithMsg(entity, message, respObj, newResp):
+    respObj.addErrorReport(entity, message)
+    respObj.setFailureRetCode()
+    Util.processRespObj(respObj, newResp)
+
+# Note: This is invoked from LAN_Classic template also
+def preSwitchDelete(dictionaryObj):
+    funcName = sys._getframe(0).f_code.co_name
+    Wrapper.print("==========ACTION: FAB [%s]: Start: %s" % (FABRIC_NAME, funcName))
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    devSerial = dictionaryObj["deviceSerial"]
+    try:
+        extFabricType = EXT_FABRIC_TYPE
+    except:
+        extFabricType = "Unknown External"
+    dictionaryObj["FABRIC_NAME"] = FABRIC_NAME
+    dictionaryObj["EXT_FABRIC_TYPE"] = extFabricType
+    try:
+        respObj = PTI.executePyTemplateMethod("preSwitchDelete_ExtFab", dictionaryObj, "preSwitchDelete")
+    except respObjError as e:
+        respObj = e.value
+    finally:
+        Wrapper.print("==========ACTION: FAB [%s]: Finish: %s: Serial [%s]. Success = [%r]" % \
+                    (FABRIC_NAME, funcName, devSerial, respObj.isRetCodeSuccess()))
+    return respObj
+
+def preChangeDiscoveryIP(dictionaryObj):
+    funcName = sys._getframe(0).f_code.co_name
+    Wrapper.print("==========ACTION: FAB [%s]: Start: %s" % (FABRIC_NAME, funcName))
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    Util.exe(actionAllow())
+    try:
+        dict = getGlobals(dictionaryObj)
+        respObj = PTI.executePyTemplateMethod("fabric_upgrade_11_1", dict, "doPreChangeDiscoveryIP")
+    except Exception as e:
+        msg = ("Unexpected error during change discovery IP handling")
+        if isinstance(e, respObjError):
+            respObj.addErrorReport(getFabErrEntity(funcName), msg)
+            respObj.setFailureRetCode()
+            Util.processRespObj(respObj, e.value)
+        else:
+            Util.handleException(msg, e, respObj)
+    finally:
+        Wrapper.print("==========ACTION: FAB [%s]: Finish: %s: Success = [%r]" % (FABRIC_NAME, funcName, respObj.isRetCodeSuccess()))
+        return respObj
+
+# Note: This is invoked from LAN_Classic template also
+def postAdd(dictionaryObj):
+    funcName = sys._getframe(0).f_code.co_name
+    Wrapper.print("==========ACTION: FAB [%s]: Start: %s" % (FABRIC_NAME, funcName))
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    devSerial = dictionaryObj["deviceSerial"]
+    dictionaryObj["FABRIC_NAME"] = FABRIC_NAME
+    try:
+        respObj = Util.exe(PTI.executePyTemplateMethod("postAdd_ExtFab", dictionaryObj, "postAdd"))
+    except respObjError as e:
+        respObj = e.value
+    finally:
+        Wrapper.print("==========ACTION: FAB [%s]: Finish: %s: Serial [%s]. Success = [%r]" % \
+                    (FABRIC_NAME, funcName, devSerial, respObj.isRetCodeSuccess()))
+    return respObj
+
+def actionAllow():
+    r = WrappersResp.getRespObj()
+    r.setSuccessRetCode()
+    try:
+        extFabricType = EXT_FABRIC_TYPE
+    except:
+        extFabricType = "Unknown External"
+
+    if ((FF == "MSD") or (FF == "SwitchGroup")):
+        fabricType = Util.mapFFToFabricType(FF, "")
+        article = "An" if fabricType[0].lower() in ['a','e','i','o','u'] else "A"
+        toArticle = "an" if extFabricType[0].lower() in ['a','e','i','o','u'] else "a"
+        r.addErrorReport("actionAllow", "%s %s fabric may not be converted to %s %s fabric "
+                         "as that may cause configuration issues. Please revert the fabric to %s and save." %
+                         (article, fabricType, toArticle, extFabricType, fabricType))
+        r.setFailureRetCode()
+    return r
+
+def configCheck(dictionaryObj):
+    funcName = sys._getframe(0).f_code.co_name
+    Wrapper.print("==========ACTION: FAB [%s]: Start: %s" % (FABRIC_NAME, funcName))
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    Wrapper.print("==========ACTION: FAB [%s]: Finish: %s: Success = [%r]" % \
+                    (FABRIC_NAME, funcName, respObj.isRetCodeSuccess()))
+    return respObj
+
+def configSave(dictionaryObj):
+    funcName = sys._getframe(0).f_code.co_name
+    Wrapper.print("==========ACTION: FAB [%s]: Start: %s" % (FABRIC_NAME, funcName))
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    dictionaryObj["FABRIC_NAME"] = FABRIC_NAME
+
+    try:
+        respObj = PTI.executePyTemplateMethod("External_Fabric_Extn", dictionaryObj, "extFabricConfigSave")
+    except respObjError as e:
+        respObj = e.value
+    finally:
+        Wrapper.print("==========ACTION: FAB [%s]: Finish: %s: Success = [%r]" % \
+                    (FABRIC_NAME, funcName, respObj.isRetCodeSuccess()))
+    return respObj
+
+def dhcpInit(dictionaryObj):
+    Wrapper.print("==========ACTION: FAB [%s]: Start: dhcpInit" % (FABRIC_NAME))
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    try:
+        respObj = PTI.executePyTemplateMethod("dhcp_common", getGlobals(dictionaryObj), "dhcpInit")
+        return respObj
+    except respObjError as e:
+        respObj = e.value
+        return respObj
+    finally:
+        Wrapper.print("==========ACTION: FAB [%s]: Finish: dhcpInit: Success = [%r]" % (FABRIC_NAME, respObj.isRetCodeSuccess()))
+
+def bootstrapDevice(dictionaryObj):
+    Wrapper.print("==========ACTION: FAB [%s]: Start: bootstrapDevice" % (FABRIC_NAME))
+    respObj = WrappersResp.getRespObj()
+    respObj.setSuccessRetCode()
+    try:
+        Util.exe(actionAllow())
+        dict = getGlobals(dictionaryObj)
+        respObj = PTI.executePyTemplateMethod("dhcp_common", dict, "bootstrapDevice")
+    except respObjError as e:
+        respObj = e.value
+    finally:
+        Wrapper.print("==========ACTION: FAB [%s]: Finish: bootstrapDevice: Success = [%r]" % (FABRIC_NAME, respObj.isRetCodeSuccess()))
+    return respObj
+
+def getValFromConfig(sn, field, conf, spclCmd=False):
+    funcName = sys._getframe(0).f_code.co_name
+    cmdList = filter(None, conf.splitlines())
+    if len(cmdList) == 0:
+        return ""
+    cmdList = filter(lambda x: x.startswith(field), cmdList)
+    value = cmdList[0][(len(field) + 1):] if len(cmdList) > 0 else ""
+    if not value and len(cmdList) > 0 and field in cmdList[0]:
+        value = "true"
+    if value != "true" and spclCmd:
+        value = "false"
+    Wrapper.print("%s(): switch %s field[%s]:value[%s] cmdList %s"% (funcName, sn, field, value, cmdList))
+    return value
+
+##
