@@ -1,0 +1,363 @@
+##template properties
+name =Ext_VRF_Lite_ospf_Jython;
+description = Creates sub-intf and ospf peering for VRF Lite on external fabric devices;
+tags = ;
+userDefined = true;
+supportedPlatforms = All;
+templateType = POLICY;
+templateSubType = DEVICE;
+contentType = PYTHON;
+implements =implements;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+
+#    Copyright (c) 2023 by Cisco Systems, Inc.
+#    All rights reserved.
+
+@(IsInternal=true)
+string SERIAL_NUMBER;
+
+@(IsInternal=true)
+string SOURCE;
+
+@(IsInternal=true)
+string POLICY_ID;
+
+@(DisplayName="Layer-3 Interface", Description="Subinterface Parent interface (e.g. e1/14, Ethernet1/14)")
+interface IF_NAME;
+
+@(DisplayName="Encapsulation dot1q VLAN ID", Description="2-4094, value needs to be in switch allowed range")
+integer DOT1Q_ID {
+  min = 2;
+  max = 4094;
+};
+
+@(IsMandatory=false, DisplayName="VRF Name", Description="Subinterface VRF name, default VRF if not specified")
+string PEER_VRF_NAME {
+  minLength = 1;
+  maxLength = 32;
+};
+
+@(IsMandatory=false, DisplayName="Subinterface IPv4 Address/Mask", Description="For IPv4 VRF Lite peering")
+ipV4AddressWithSubnet IP_MASK;
+
+@(IsMandatory=false, DisplayName="Subinterface IPv6 Address/Mask", Description="For IPv6 VRF Lite peering")
+ipV6AddressWithSubnet IPV6_MASK;
+
+@(DisplayName="Subinterface MTU", IsMTU=true, Description="Layer-3 MTU (Min:576, Max:9216)")
+integer MTU {
+min = 576;
+max = 9216;
+defaultValue=9216;
+};
+
+@(IsMandatory=false, DisplayName="Enable TRM", Description="Enable Tenant Routed Multicast")
+boolean TRM_ENABLE;
+
+@(IsMandatory=false, DisplayName="OSPF Process Tag", Description="OSPF Routing Process Tag (Max Size 20)")
+string OSPF_PROCESS_TAG {
+minLength = 1;
+maxLength = 20;
+};
+
+@(IsMandatory="OSPF_PROCESS_TAG!=null", IsShow="OSPF_PROCESS_TAG!=null", DisplayName="OSPF Area Id", Description="OSPF Area Id in IP address format")
+string OSPF_AREA_ID {
+  minLength = 1;
+  maxLength = 15;
+};
+
+@(IsMandatory=false, DisplayName="OSPFv3 Process Tag", Description="OSPFv3 Routing Process Tag (Max Size 20)")
+string OSPFv3_PROCESS_TAG {
+minLength = 1;
+maxLength = 20;
+};
+
+@(IsMandatory="OSPFv3_PROCESS_TAG!=null", IsShow="OSPFv3_PROCESS_TAG!=null", DisplayName="OSPFv3 Area Id", Description="OSPFv3 Area Id in IP address format")
+string OSPFv3_AREA_ID {
+  minLength = 1;
+  maxLength = 15;
+};
+
+@(IsMandatory=false, DisplayName="OSPF Authentication Key", Description="3DES Encrypted, for IPv4 only")
+string OSPF_AUTH_KEY {
+minLength = 1;
+maxLength = 256;
+};
+
+@(IsMandatory="OSPF_AUTH_KEY!=null", IsShow="OSPF_AUTH_KEY!=null", DisplayName="OSPF Authentication Key ID", Description="(Min:0, Max:255)")
+integer OSPF_AUTH_KEY_ID {
+min = 0;
+max = 255;
+defaultValue = 127;
+};
+
+##
+##template content
+
+from com.cisco.dcbu.vinci.rest.services.jython import PTIWrapper
+from com.cisco.dcbu.vinci.rest.services.jython import Wrapper
+from com.cisco.dcbu.vinci.rest.services.jython import WrappersResp
+from com.cisco.dcbu.vinci.rest.services.jython import Helper
+from com.cisco.dcbu.vinci.rest.services.jython import InventoryWrapper
+from com.cisco.dcbu.vinci.rest.services.jython import InterfaceManagerWrapper
+from utility import *
+
+def add():
+    try:
+        respObj = WrappersResp.getRespObj()
+        #if called by topdown, SOURCE will be set. Then user will not be able to edit from View/Edit policies
+        jython_source  = ""
+        try:
+            jython_source = SOURCE
+        except:
+            jython_source = POLICY_ID
+            pass
+
+        SOURCE = jython_source
+
+        switchModel = Util.exe(InventoryWrapper.getSwitchModel(SERIAL_NUMBER))
+        isIOSXE = Util.isIOSXEDevice(SERIAL_NUMBER, switchModel)
+        isIOSXR = Util.isIOSXRDevice(SERIAL_NUMBER, switchModel)
+        if isIOSXE or isIOSXR:
+            hostName = Util.exe(InventoryWrapper.getHostName(SERIAL_NUMBER))
+            errorMsg = ("Destination switch [%s/%s] is an IOS %s, VRF Lite Peering Protocol using ospf is not yet supported on "
+                        "IOS XE/XR devices" % (hostName, SERIAL_NUMBER, "XE" if isIOSXE else "XR"))
+            respObj.addErrorReport(("Error"), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+
+        if OSPF_PROCESS_TAG == "" and OSPFv3_PROCESS_TAG == "":
+            errorMsg = '"OSPF Process Tag" or "OSPFv3 Process Tag" must be configured for VRF Lite configuration using ospf'
+            respObj.addErrorReport(("Error"), errorMsg, SERIAL_NUMBER)
+            respObj.setFailureRetCode()
+            return respObj
+
+        src_intf = Util.exe(Helper.getInterfaceName2(IF_NAME))
+        Wrapper.print("Interface provided %s -> %s" % (IF_NAME, src_intf))
+        
+        srchOpt = CtrlPolicySearch()
+        srchOpt.setSerialNumber(SERIAL_NUMBER)
+        srchOpt.setSource(SOURCE)
+        srchOpt.setTemplateName("int_subif_internal")
+        ptiList = Util.exe(PTIWrapper.getPTIs(srchOpt))
+        if ptiList:
+            for pti in ptiList:
+                oldValue = pti.getEntityName()
+                oldInterface = oldValue.split(".")[0]
+                #Compare the physical interface, it should be the same
+                if oldInterface != src_intf:
+                    Wrapper.print("Error case: Old: %s New %s" %(oldInterface, src_intf))
+                    errorMsg = ("New parent interface %s not matching old one %s" % (oldInterface, src_intf))
+                    respObj.addErrorReport(("Error"), errorMsg)
+                    respObj.setFailureRetCode()
+                    return respObj
+
+                break
+            
+        # get fabric for switch with this serial number
+        inventoryResp = InventoryWrapper.getFabricNameForSwitch(SERIAL_NUMBER)
+        if inventoryResp.isRetCodeSuccess():
+            fabricName = inventoryResp.getValue()
+            Wrapper.print("Inventory wrapper response fabric name is %s" %(fabricName))
+        else:
+            Wrapper.print("Invalid fabric for switch %s" %(SERIAL_NUMBER))
+            return inventoryResp
+             
+        # Interface specified can only be a routed interface: Ethernet or L3 Port-channel
+        interfaceResp = InterfaceManagerWrapper.isRoutedPort(SERIAL_NUMBER, src_intf)
+        if interfaceResp.isRetCodeSuccess():
+            routedFlag = interfaceResp.getValue()
+            if routedFlag != True:
+                errorMsg = ("Interface %s is not a routed interface" % (IF_NAME))
+                respObj.addErrorReport(("Error"), errorMsg)
+                respObj.setFailureRetCode()
+                return respObj
+        else:
+            Wrapper.print("Invalid interface wrapper response for %s %s" %(SERIAL_NUMBER, IF_NAME))
+            return interfaceResp
+        
+        #Only vaid cases are routed interfaces and l3 port-channels
+        if ("ethernet" in src_intf.lower() or "port-channel" in src_intf.lower()):
+            intfName = src_intf + "." + DOT1Q_ID
+        else:
+            errorMsg = ("[%s] Invalid interface provided for VRF Lite Peering" % (src_intf))
+            respObj.addErrorReport(("Error"), errorMsg)            
+            respObj.setFailureRetCode()
+            return respObj
+
+        minVlan, maxVlan = Util.getDot1qRange()
+        if (int(DOT1Q_ID) < minVlan) or (int(DOT1Q_ID) > maxVlan):
+            errorMsg = "Dot1q Vlan ID %s is out of the allowed Dot1q range (%s, %s)." % (DOT1Q_ID, minVlan, maxVlan)
+            Wrapper.print(errorMsg)
+            respObj.addErrorReport("add", errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+
+        # modify to be done, calling delete now to clean up PTIs before add
+        Wrapper.print("Calling delete of PTIs for SOURCE %s" %(SOURCE))
+        delete(True)
+        
+        # For default vrf in external fabric, should RM be done?
+        # As of DCNM 11.2: Subinteraces do not have any RM handling
+        rmIds = []
+
+        IP, PREFIX = IP_MASK.split("/") if IP_MASK else ("","")
+        IPv6, IPv6_PREFIX = IPV6_MASK.split("/") if IPV6_MASK else ("","")
+        
+        peerVrfName = "default" if PEER_VRF_NAME == "" or PEER_VRF_NAME.lower() == "default" else PEER_VRF_NAME
+
+        # Create sub-interface for VRF Lite Extension
+        # TODO: Need to set source so that the user cannot delete subinterface or ospf neighbors
+        ffConf = []
+        if IP_MASK != "" and OSPF_PROCESS_TAG != "":
+            if OSPF_AUTH_KEY != "":
+                cmd = ("ip ospf message-digest-key %s md5 3 %s" % (OSPF_AUTH_KEY_ID, OSPF_AUTH_KEY))
+                ffConf.append(cmd)
+            cmd = ("ip router ospf %s area %s" % (OSPF_PROCESS_TAG, OSPF_AREA_ID))
+            ffConf.append(cmd)
+        if IPV6_MASK != "" and OSPFv3_PROCESS_TAG != "":
+            cmd = ("ipv6 router ospfv3 %s area %s" % (OSPFv3_PROCESS_TAG, OSPFv3_AREA_ID))
+            ffConf.append(cmd)
+        conf = Util.newLine().join(ffConf)
+        new_nvPairs = {"INTF_NAME" : intfName,
+                       "VLAN" : DOT1Q_ID,
+                       "IP" : IP,
+                       "PREFIX" : PREFIX,
+                       "INTF_VRF" : peerVrfName,
+                       "IPv6": IPv6,
+                       "IPv6_PREFIX": IPv6_PREFIX,
+                       "MTU" : MTU,
+                       "ADMIN_STATE" : "true",
+                       "TRM_ENABLE" : TRM_ENABLE,
+                       "DESC" : "",
+                       "CONF" : conf
+                      }
+        Wrapper.print("adding sub-interface %s, nvPairs %s" % (new_nvPairs["INTF_NAME"], new_nvPairs))
+
+        Util.exe(PTIWrapper.createOrUpdate(SERIAL_NUMBER, "INTERFACE", new_nvPairs["INTF_NAME"], SOURCE,
+                                           ConfigPriority.CONFIG_PRIO_INTF, rmIds,
+                                           "int_subif_internal", new_nvPairs))
+
+        if OSPF_PROCESS_TAG != "":
+            Util.exe(PTIWrapper.createOrUpdate(SERIAL_NUMBER, "SWITCH", "SWITCH", "",
+                                               ConfigPriority.CONFIG_PRIO_TOP,
+                                               "feature_ospf", {}))
+        if OSPFv3_PROCESS_TAG != "":
+            Util.exe(PTIWrapper.createOrUpdate(SERIAL_NUMBER, "SWITCH", "SWITCH", "",
+                                               ConfigPriority.CONFIG_PRIO_TOP,
+                                               "feature_ospfv3", {}))
+
+        #Create VRF (if non-default VRF) and ospf peering for VRF Lite
+        ospfAuthEnable = "true" if OSPF_AUTH_KEY != "" and OSPF_PROCESS_TAG != "" else "false"
+        nvPairs = {"vrfName": peerVrfName, "vrfDescription": "",
+                   "OSPF_PROCESS_TAG": OSPF_PROCESS_TAG, "OSPF_AREA_ID": OSPF_AREA_ID,
+                   "OSPFv3_PROCESS_TAG": OSPFv3_PROCESS_TAG, "OSPF_AUTH_ENABLE": ospfAuthEnable}
+        Wrapper.print("Creating External_VRF_Lite_ospf with nvPairs %s" % (nvPairs))
+        Util.exe(PTIWrapper.createOrUpdate(SERIAL_NUMBER, "SWITCH", "SWITCH", SOURCE,
+                                           ConfigPriority.CONFIG_PRIO_UNDERLAY_TOP_LVL1 + 1,
+                                           "External_VRF_Lite_ospf", nvPairs))
+
+        respObj.setSuccessRetCode()
+        return respObj
+    except respObjError as e:
+        return e.value
+
+def delete(Force=False):
+    try:
+        src_intf = Util.exe(Helper.getInterfaceName2(IF_NAME))
+        Wrapper.print("Interface provided %s -> %s" % (IF_NAME, src_intf))
+        if Force:
+            IP, PREFIX = IP_MASK.split("/") if IP_MASK else ("","")
+            IPv6, IPv6_PREFIX = IPV6_MASK.split("/") if IPV6_MASK else ("","")
+            Wrapper.print("IPMask %s ipv6 mask %s PREFIX %s, IPv6_PREFIX %s" % (IP_MASK, IPV6_MASK, PREFIX,IPv6_PREFIX))
+
+            v4SkipDel = True if PREFIX and (int(PREFIX) < 8 or int(PREFIX) > 31) else False
+            v6SkipDel = True if IPv6_PREFIX and (int(IPv6_PREFIX) < 64 or int(IPv6_PREFIX) > 127) else False
+            if v4SkipDel or v6SkipDel:
+                Wrapper.print("Ext_VRF_Lite_ospf_Jython (intf %s): upgrade case, just skip so that template validation "
+                              "error reports warning and no change on ptis" % (src_intf))
+                respObj = WrappersResp.getRespObj()
+                respObj.setSuccessRetCode()
+                return respObj
+
+        if ("ethernet" in src_intf.lower() or "port-channel" in src_intf.lower()):
+            intfName = src_intf + "." + DOT1Q_ID
+        else:
+            respObj = WrappersResp.getRespObj()
+            errorMsg = ("[%s] Invalid interface provided for VRF Lite Peering" % src_intf)
+            respObj.setFailureRetCode()
+            return respObj        
+
+        #if called by topdown, SOURCE will be set. Then user will not be able to edit from View/Edit policies
+        jython_source  = ""
+        try:
+            jython_source = SOURCE
+        except:
+            jython_source = POLICY_ID
+            pass
+        
+        SOURCE = jython_source
+        Wrapper.print("Source of VRF Lite Jython is %s for switch %s" %(SOURCE, SERIAL_NUMBER))
+        
+        #Get all PTIs for the SOURCE VRF Lite Extension in external fabric
+        wrappersResp = PTIWrapper.get(SERIAL_NUMBER, SOURCE)
+        if wrappersResp.isRetCodeSuccess():
+            vrfLitePolicies = wrappersResp.getValue()
+            for policy in vrfLitePolicies:
+                Wrapper.print("VRF Lite policy for External Fabric DELETE: %s %s" % (policy.getPolicyId(), policy.getTemplateName()))
+                if policy.getTemplateName() == "int_subif_internal":
+                    PTIWrapper.deleteInstance(policy.getPolicyId())
+                else:
+                    PTIWrapper.markDeleteInstance(policy.getPolicyId())
+
+        #Get the PTI for the subinterface if any exists, this is to take care of the case where subintf is already created and then VRF Lite Jython is called
+        srchOpt = CtrlPolicySearch()
+        srchOpt.setSerialNumber(SERIAL_NUMBER)
+        srchOpt.setEntityName(intfName)
+        srchOpt.setTemplateContentType("PYTHON")
+        subintPolicies = Util.exe(PTIWrapper.getPTIs(srchOpt))
+        if subintPolicies:
+            for policy in subintPolicies:
+                Wrapper.print("Subinterface policy for External Fabric DELETE: %s %s" % (policy.getPolicyId(), policy.getTemplateName()))
+                PTIWrapper.deleteInstance(policy.getPolicyId())
+
+        if Force:
+            respObj = WrappersResp.getRespObj()
+            respObj.setSuccessRetCode()
+            return respObj
+
+        # If this is a true deletion of the policy, check if other Ext_VRF_Lite_ospf_Jython policies exist,
+        # and whether "feature_ospf" and/or "feature_ospfv3" is needed for those policies
+        numOspf = numOspfv3 = 0
+        srchOpt = CtrlPolicySearch()
+        srchOpt.setSerialNumber(SERIAL_NUMBER)
+        srchOpt.setTemplateName("Ext_VRF_Lite_ospf_Jython")
+        vrfLiteOspfPolicies = Util.exe(PTIWrapper.getPTIs(srchOpt))
+        if vrfLiteOspfPolicies:
+            for policy in vrfLiteOspfPolicies:
+                if policy.getPolicyId() == POLICY_ID:
+                    continue
+                nvPairs = policy.getNvPairs()
+                if nvPairs["OSPF_PROCESS_TAG"] != "":
+                    numOspf += 1
+                if nvPairs["OSPFv3_PROCESS_TAG"] != "":
+                    numOspfv3 += 1
+        if numOspf == 0:
+            ptiList = Util.exe(PTIWrapper.get(SERIAL_NUMBER, "SWITCH", "SWITCH", "", "feature_ospf"))
+            if ptiList:
+                Util.exe(PTIWrapper.markDelete(SERIAL_NUMBER, "SWITCH", "SWITCH", "", "feature_ospf"))
+        if numOspfv3 == 0:
+            ptiList = Util.exe(PTIWrapper.get(SERIAL_NUMBER, "SWITCH", "SWITCH", "", "feature_ospfv3"))
+            if ptiList:
+                Util.exe(PTIWrapper.markDelete(SERIAL_NUMBER, "SWITCH", "SWITCH", "", "feature_ospfv3"))
+
+        respObj = WrappersResp.getRespObj()
+        respObj.setSuccessRetCode()
+        return respObj
+    except respObjError as e:
+        return e.value
+
+##

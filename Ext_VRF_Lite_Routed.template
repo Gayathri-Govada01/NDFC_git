@@ -1,0 +1,571 @@
+##template properties
+name =Ext_VRF_Lite_Routed;
+description = Creates eBGP peering for VRF Lite over physical interface or port-channel interface;
+tags = ;
+userDefined = false;
+supportedPlatforms = All;
+templateType = POLICY;
+templateSubType = DEVICE;
+contentType = PYTHON;
+implements =implements;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+
+#    Copyright (c) 2022 by Cisco Systems, Inc.
+#    All rights reserved.
+
+@(IsInternal=true)
+string SERIAL_NUMBER;
+
+@(IsInternal=true)
+string SOURCE;
+
+@(IsInternal=true)
+string POLICY_ID;
+
+@(DisplayName="Layer-3 Interface", Description="Physical or Port-channel interface (e.g. e1/14, Ethernet1/14, po30, port-channel30)")
+interface IF_NAME;
+
+@(IsMandatory="false", DisplayName="VRF Name", Description="VRF name, default VRF if not specified")
+string VRF_NAME {
+  minLength = 1;
+  maxLength = 32;
+};
+
+@(DisplayName="IPv4 Address/Netmask", Description="For IPv4 VRF Lite peering")
+ipV4AddressWithSubnet IP_MASK;
+
+@(DisplayName="Neighbor IPv4 Address", Description="BGP Peer IPv4 Address")
+ipV4Address NEIGHBOR_IP;
+
+@(IsMandatory=false, DisplayName="IPv6 Address/Netmask", Description="For IPv6 VRF Lite peering")
+ipV6AddressWithSubnet IPv6_MASK;
+
+@(IsMandatory="IPv6_MASK!=null", IsShow="IPv6_MASK!=null", DisplayName="Neighbor IPv6 Address", Description="BGP Peer IPv6 Address")
+ipV6Address NEIGHBOR_IPv6;
+
+@(DisplayName="Neighbor ASN", Description="BGP ASN of IPv4/IPv6 Neighbor")
+string NEIGHBOR_ASN;
+
+@(IsMandatory=false, DisplayName="Local ASN", Description="The fabric ASN will be used if not specified")
+string asn;
+
+@(IsMandatory=false, DisplayName="BGP Neighbor<br/>Password", Description="Hex String")
+string bgpPassword {
+minLength = 1;
+maxLength = 130;
+regularExpr=^[a-fA-F0-9]+$;
+};
+
+@(IsMandatory=false, IsShow="bgpPassword!=null", DisplayName="BGP Password<br/>Key Encryption Type", Description="BGP Key Encryption Type: 3 - 3DES, 7 - Cisco")
+enum bgpPasswordKeyType {
+    validValues=3,7;
+    defaultValue=3;
+};
+
+@(IsMandatory=false, IsShow="VRF_NAME==''||VRF_NAME=='default'", DisplayName="Enable BGP Soft Reconfiguration", Description="Enable inbound soft reconfiguration. Applicable to default vrf only")
+boolean ENABLE_SOFT_RECONFIG;
+
+@(DisplayName="MTU", IsMTU=true, Description="Layer-3 MTU (Min:576, Max:9216)")
+integer MTU {
+min = 576;
+max = 9216;
+defaultValue=9216;
+};
+
+@(IsMandatory=false, DisplayName="Routing TAG", Description="Routing tag associated with interface IP", Section = "Advanced")
+string ROUTING_TAG;
+
+@(IsMandatory=false, DisplayName="IPv4 Inbound Route Map", Description="No route-map if blank", Section = "Advanced")
+string ROUTE_MAP_IN;
+
+@(IsMandatory=false, DisplayName="IPv4 Outbound Route Map", Description="No route-map if blank", Section = "Advanced")
+string ROUTE_MAP_OUT;
+
+@(IsMandatory=false, IsShow="IPv6_MASK!=null", DisplayName="IPv6 Inbound Route Map", Description="No route-map if blank", Section = "Advanced")
+string IPV6_ROUTE_MAP_IN;
+
+@(IsMandatory=false, IsShow="IPv6_MASK!=null", DisplayName="IPv6 Outbound Route Map", Description="No route-map if blank", Section = "Advanced")
+string IPV6_ROUTE_MAP_OUT;
+
+@(IsMandatory=false, DisplayName="Interface Description", Description="Add description to the interface (Max Size 254)", Section = "Advanced")
+string DESC {
+  minLength = 1;
+  maxLength = 254;
+};
+
+@(IsMandatory=false, IsMultiLineString=true, DisplayName="Freeform Config", Description="Additional CLI for the interface", Section = "Advanced")
+string CONF;
+
+@(DisplayName="Interface Admin State", Description="Admin state of the interface", Section = "Advanced")
+boolean ADMIN_STATE {
+  defaultValue=true;
+};
+
+##
+##template content
+
+from com.cisco.dcbu.vinci.rest.services.jython import PTIWrapper
+from com.cisco.dcbu.vinci.rest.services.jython import Wrapper
+from com.cisco.dcbu.vinci.rest.services.jython import WrappersResp
+from com.cisco.dcbu.vinci.rest.services.jython import Helper
+from com.cisco.dcbu.vinci.rest.services.jython import InventoryWrapper
+from com.cisco.dcbu.vinci.rest.services.jython import InterfaceManagerWrapper
+from utility import *
+
+import copy
+
+def add():
+    try:
+        Wrapper.print("Ext_VRF_Lite_Routed add [%s] POLICY ID %s Interface %s" %(SERIAL_NUMBER, POLICY_ID, IF_NAME))
+        respObj = WrappersResp.getRespObj()
+
+        #if called by topdown, SOURCE will be set. Then user will not be able to edit from View/Edit policies
+        jython_source  = ""
+        try:
+            jython_source = SOURCE
+        except:
+            jython_source = POLICY_ID
+            pass
+        
+        SOURCE = jython_source
+        eBGPPassword = ""
+        eBGPPasswordKeyType = "3"
+        try:
+            eBGPPassword = bgpPassword
+        except:
+            pass
+        try:
+            eBGPPasswordKeyType = bgpPasswordKeyType
+        except:
+            pass
+
+        try:
+            softReconfig = ENABLE_SOFT_RECONFIG
+        except:
+            softReconfig = "false"
+
+        Wrapper.print("Source of VRF Lite Jython is [%s] for switch [%s]. BGP Password [%s]/[%s]" %(SOURCE, SERIAL_NUMBER, 
+                                            eBGPPassword, eBGPPasswordKeyType))
+
+        intfName = Util.exe(Helper.getInterfaceName2(IF_NAME))
+        if "port-channel" in intfName.lower():
+            intfName = intfName.lower()
+
+        Wrapper.print("Interface provided %s -> %s" % (IF_NAME, intfName))
+
+        #Only valid cases are routed interfaces and l3 port-channels
+        if ("ethernet" not in intfName.lower() and "port-channel" not in intfName.lower()) or ("." in intfName.lower()):
+            errorMsg = ("[%s] Invalid interface provided. Please provide Ethernet or Port-channel interface." % (IF_NAME))
+            respObj.addErrorReport(("Error"), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+
+         #Check if input interface is not a port-channel member
+        if (intfName.lower().find("ethernet")) != -1:
+            dictObj = {"SERIAL_NUMBER": SERIAL_NUMBER, "IF_NAME": intfName}
+            Util.exe(PTIWrapper.executePyTemplateMethod("fabric_utility_11_1", dictObj, "check_po_member"))
+        else:
+            # port channel case
+            ptiList = Util.exe(PTIWrapper.getPTIs(SERIAL_NUMBER, "INTERFACE", intfName, "PYTHON"))
+            if not ptiList:
+                errorMsg = ("%s policy does not exist yet. Please first create int_l3_port_channel policy for %s."%(intfName, intfName))
+                respObj.addErrorReport(("Error"), errorMsg)
+                respObj.setFailureRetCode()
+                return respObj
+
+        # Check if input interface does not have any other Source
+        ptiList = Util.exe(PTIWrapper.getPTIs(SERIAL_NUMBER, "INTERFACE", intfName, "PYTHON"))
+        for pti in ptiList:
+            if pti.getSource() != "" and pti.getSource() != POLICY_ID:
+                errorMsg = ("Source Interface %s is already used in the fabric and hence cannot be "
+                            "used for this VRF Lite interface" % intfName)
+                respObj.addErrorReport(("Error"), errorMsg)
+                respObj.setFailureRetCode()
+                return respObj
+
+        srchOpt = CtrlPolicySearch()
+        srchOpt.setSerialNumber(SERIAL_NUMBER)
+        srchOpt.setSource(SOURCE)
+        srchOpt.setTemplateContentType("PYTHON")
+        ptiList = Util.exe(PTIWrapper.getPTIs(srchOpt))
+        if ptiList:
+            for pti in ptiList:
+                if pti.isDeleted():
+                    continue
+
+                if pti.getTemplateName() == "ext_int_routed_host_11_1" or pti.getTemplateName() == "int_l3_port_channel_internal":
+                    oldInterface = pti.getEntityName()
+                    # Compare the interface, in case it is changed
+                    if oldInterface != intfName:
+                        Wrapper.print("Ext_VRF_Lite_Routed: interface change %s -> %s" % (oldInterface, intfName))
+                        if oldInterface.lower().find("port-channel") == -1:
+                            fec = pti.getNvPairs().get("FEC", "auto")
+                            PTIWrapper.deleteInstance(pti.getPolicyId())
+                            Util.exe(PTIWrapper.createOrUpdate(SERIAL_NUMBER, "INTERFACE",
+                                                  oldInterface, "",
+                                                  ConfigPriority.routed_host,
+                                                  "int_routed_host",
+                                                  {"INTF_NAME": oldInterface,
+                                                   "INTF_VRF" : "",
+                                                   "IP" : "",
+                                                   "PREFIX" : "",
+                                                   "ROUTING_TAG" : "",
+                                                   "MTU": "9216",
+                                                   "SPEED": "Auto",
+                                                   "DESC": "",
+                                                   "FEC": fec,
+                                                   "CONF": "",
+                                                   "ADMIN_STATE": "true"}))
+                        else:
+                            restore_l3_portchannel(oldInterface, pti)
+                    break
+            
+        #Validate neighbor ASN format
+        respObj = Helper.isValidAsn (NEIGHBOR_ASN)
+        if respObj.isRetCodeFailure():
+            errorMsg = ("Invalid Neighbor ASN %s" % (NEIGHBOR_ASN))
+            respObj.addErrorReport(("Error"), errorMsg)
+            return respObj
+        
+        # get fabric for switch with this serial number
+        inventoryResp = InventoryWrapper.getFabricNameForSwitch(SERIAL_NUMBER)
+        if inventoryResp.isRetCodeSuccess():
+            fabricName = inventoryResp.getValue()
+            Wrapper.print("Inventory wrapper response fabric name is %s" %(fabricName))
+        else:
+            Wrapper.print("Invalid fabric for switch %s" %(SERIAL_NUMBER))
+            return inventoryResp
+                                           
+        # try to honor the ASN passed in
+        fabricAsn = local_asn = ""
+        config_local_as = False
+        try:
+            fabricAsn = local_asn = asn
+        except:
+            pass
+
+        fabricTech = Util.exe(FabricWrapper.getFabricTechnology(fabricName))
+        if fabricTech == "EBGPVXLANFabric" or fabricTech == "eBGP_Routed_Fabric":
+            switchAsn = Util.getEbgpDeviceAsn(SERIAL_NUMBER, fabricName)
+        else:
+            helperResp = Helper.getFabricAsn(fabricName)
+            if helperResp.isRetCodeSuccess():
+                switchAsn = helperResp.getValue()
+            else:
+                Wrapper.print("Invalid ASN for Fabric %s" %(fabricName))
+                return helperResp
+
+        Wrapper.print("fabricTech %s, switch ASN %s"%(fabricTech, switchAsn))
+
+        if ((fabricAsn == None) or (fabricAsn == "")):
+            # the ASN does not seem valid... use the current fabric/switch ASN
+            fabricAsn = switchAsn
+        else:
+            # local ASN is provided. Check whether needs to override fabric ASN
+            fabric_type = Util.exe(Helper.getFabricType(fabricName))
+            if fabric_type == "Switch_Fabric":
+                fabricAsn = switchAsn
+                if local_asn != fabricAsn:
+                    config_local_as = True
+
+        if ((fabricAsn == None) or (fabricAsn == "")):
+            # we still have an invalid ASN
+            errorMsg = ("Could not determine the BGP ASN for fabric [%s]" % (fabricName))
+            respObj.addErrorReport("VRF-LITE-EXT:INVALID_ASN", errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+
+        ipAddress = IP_MASK.split("/")
+        IP = ipAddress[0]
+        PREFIX = ipAddress[1]
+
+        subnetStr1 = Util.getSubnetStringWithPrefix(IP, PREFIX)
+        subnetStr2 = Util.getSubnetStringWithPrefix(NEIGHBOR_IP, PREFIX)
+        if subnetStr1 != subnetStr2:
+            errorMsg = ("Local IP address %s and BGP Peer address %s are not in same subnet"%
+                        (IP_MASK, NEIGHBOR_IP))
+            respObj.addErrorReport("VRF-LITE-EXT:INVALID_IP", errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+
+        if IPv6_MASK != "":
+            ipv6Address = IPv6_MASK.split("/")
+            IPv6 = ipv6Address[0]
+            IPv6_PREFIX = ipv6Address[1]
+
+            subnetStr1 = Util.getV6SubnetStringWithPrefix(IPv6, IPv6_PREFIX)
+            subnetStr2 = Util.getV6SubnetStringWithPrefix(NEIGHBOR_IPv6, IPv6_PREFIX)
+            if subnetStr1 != subnetStr2:
+                errorMsg = ("Local IPv6 address %s and BGP Peer address %s are not in same subnet"%
+                            (IPv6_MASK, NEIGHBOR_IPv6))
+                respObj.addErrorReport("VRF-LITE-EXT:INVALID_IP", errorMsg)
+                respObj.setFailureRetCode()
+                return respObj
+        else:
+            IPv6 = IPv6_PREFIX = ""
+
+        # modify to be done, calling delete now to clean up PTIs before add
+        Wrapper.print("Calling delete of PTIs for SOURCE %s" %(SOURCE))
+        delete(True)
+
+        # Create interface policy for VRF Lite Extension
+        # VRF Lite IP is not tracked in RM currently
+        rmIds = []
+        
+        intfVrf = "default" if VRF_NAME == "" or VRF_NAME.lower() == "default" else VRF_NAME
+
+        if (intfName.lower().find("port-channel")) == -1:
+            fec = "auto"
+            ptiList = Util.exe(PTIWrapper.getPTIs(SERIAL_NUMBER, "INTERFACE", intfName, "PYTHON"))
+            for pti in ptiList:
+                Wrapper.print("del of interface in Link_PTI: Found current python policy [%s] src [%s] id [%s] for SN:[%s] interface [%s]" %
+                        (pti.getTemplateName(), pti.getSource(), pti.getPolicyId(), SERIAL_NUMBER, intfName))
+                fec = pti.getNvPairs().get("FEC", "auto")
+                if pti.getTemplateName() != "ext_int_routed_host_11_1":
+                    PTIWrapper.deleteInstance(pti.getPolicyId())
+
+            new_nvPairs = {"INTF_NAME" : intfName,
+                       "IP" : IP,
+                       "PREFIX" : PREFIX,
+                       "IPv6" : IPv6,
+                       "PREFIXv6" : IPv6_PREFIX,
+                       "INTF_VRF" : intfVrf,
+                       "MTU" : MTU,
+                       "ROUTING_TAG": ROUTING_TAG,
+                       "ADMIN_STATE" : ADMIN_STATE,
+                       "SPEED": "Auto",
+                       "DESC" : DESC,
+                       "FEC" : fec,
+                       "CONF" : CONF
+                      }
+            Wrapper.print("adding interface %s, nvPairs %s" % (intfName, new_nvPairs))
+
+            Util.exe(PTIWrapper.createOrUpdate(SERIAL_NUMBER, "INTERFACE", intfName, SOURCE,
+                                           ConfigPriority.CONFIG_PRIO_INTF, rmIds,
+                                           "ext_int_routed_host_11_1", new_nvPairs))
+        else:
+            ptiList = Util.exe(PTIWrapper.getPTIs(SERIAL_NUMBER, "INTERFACE", intfName, "PYTHON"))
+            for pti in ptiList:
+                Wrapper.print("L3 Po case for SN %s, %s" % (SERIAL_NUMBER, intfName))
+                l3_po_nvPairs = copy.deepcopy(pti.getNvPairs())
+                Wrapper.print("get interface in Link_PTI: Found current python policy [%s] src [%s] id [%s], Existing NV Pairs [%s]" %
+                          (pti.getTemplateName(), pti.getSource(), pti.getPolicyId(), str(l3_po_nvPairs)))
+
+                #Need to capture desc and FF of port channel member interfaces if any
+                dictObj ={"MEMBER_INTERFACES": l3_po_nvPairs["MEMBER_INTERFACES"],
+                          "SERIAL_NUMBER": SERIAL_NUMBER}
+                responseDict = Util.exe(PTIWrapper.executePyTemplateMethod("fabric_utility_11_1", dictObj, "capture_po_member_interface_ptis"))
+                PTIWrapper.deleteInstance(pti.getPolicyId())
+
+                #Create new L3 Po PTI with updated nvPairs
+                Wrapper.print("createOrUpdate L3 Po interface for Routed IFC source")
+                nvPairs = {"PO_ID": intfName,
+                           "INTF_VRF": intfVrf,
+                           "IP": IP, "PREFIX": PREFIX,
+                           "IPv6": IPv6, "PREFIXv6": IPv6_PREFIX,
+                           "MEMBER_INTERFACES": l3_po_nvPairs["MEMBER_INTERFACES"],
+                           "PC_MODE": l3_po_nvPairs["PC_MODE"],
+                           "SOURCE": SOURCE,
+                           "ADMIN_STATE": ADMIN_STATE,
+                           "ROUTING_TAG" : ROUTING_TAG,
+                           "MTU": MTU,
+                           "CONF" : CONF,
+                           "DESC" : DESC
+                          }
+
+                Util.exe(PTIWrapper.createOrUpdate(SERIAL_NUMBER, "INTERFACE",
+                                                   intfName, SOURCE,
+                                                   ConfigPriority.CONFIG_PRIO_INTF,
+                                                   "int_l3_port_channel_internal",
+                                                   nvPairs))
+
+                #Create the desc and FF of port channel member interfaces if any
+                dictObj = {"SERIAL_NUMBER": SERIAL_NUMBER, "IF_NAME": intfName,
+                           "memberInterfaces": responseDict["memberInterfaces"],
+                           "memberDescDict": responseDict["memberDescDict"],
+                           "memberFecDict": responseDict["memberFecDict"],
+                           "memberConfDict": responseDict["memberConfDict"],
+                           "memberAdminStateDict": responseDict["memberAdminStateDict"],
+                           "pcMemTemplateName": "int_l3_port_channel_member_internal"}
+                Util.exe(PTIWrapper.executePyTemplateMethod("fabric_utility_11_1", dictObj, "create_po_member_interface_ptis"))
+
+                break
+
+        #Create VRF (if non-default VRF) and eBGP peering for VRF Lite
+        nvPairs = {"vrfName": intfVrf, "vrfDescription": "", "asn": fabricAsn, "VRF_LOCAL_ASN": "",
+                   "NEIGHBOR_ASN": NEIGHBOR_ASN, "bgpPassword" : eBGPPassword, "bgpPasswordKeyType"  : eBGPPasswordKeyType,
+                   "NEIGHBOR_IP": NEIGHBOR_IP, "IPV6_NEIGHBOR": NEIGHBOR_IPv6, "ENABLE_SOFT_RECONFIG": softReconfig}
+        
+        Wrapper.print("Creating External_VRF_Lite_eBGP with nvPairs %s" % (nvPairs))
+        Util.exe(PTIWrapper.create(SERIAL_NUMBER, "SWITCH", "SWITCH", SOURCE,
+                                   ConfigPriority.CONFIG_PRIO_UNDERLAY_TOP_LVL1 + 1,
+                                   "External_VRF_Lite_eBGP", nvPairs))
+
+        if config_local_as:
+            nvPairs = {"BGP_AS": fabricAsn,
+                       "VRF_NAME": intfVrf,
+                       "BGP_NEIGHBOR_IP": NEIGHBOR_IP,
+                       "BGP_LOCAL_AS": local_asn}
+            Util.exe(PTIWrapper.create(SERIAL_NUMBER, "SWITCH", "SWITCH", SOURCE,
+                                   ConfigPriority.CONFIG_PRIO_UNDERLAY_TOP_LVL1 + 2,
+                                   "bgp_neighbor_ebgp_local_as",  nvPairs))
+
+            if IPv6 != "":
+                nvPairs = {"BGP_AS": fabricAsn,
+                           "VRF_NAME": intfVrf,
+                           "BGP_NEIGHBOR_IPV6": NEIGHBOR_IPv6,
+                           "BGP_LOCAL_AS": local_asn}
+                Util.exe(PTIWrapper.create(SERIAL_NUMBER, "SWITCH", "SWITCH", SOURCE,
+                                       ConfigPriority.CONFIG_PRIO_UNDERLAY_TOP_LVL1 + 2,
+                                       "bgp_neighbor_ebgp_v6_local_as",  nvPairs))
+
+        if ROUTE_MAP_IN != "":
+            nvPairs = {"BGP_AS": fabricAsn,
+                       "VRF_NAME": intfVrf,
+                       "BGP_NEIGHBOR_IP": NEIGHBOR_IP,
+                       "IP_TYPE": "ipv4",
+                       "ROUTE_MAP": ROUTE_MAP_IN,
+                       "DIRECTION": "in"}
+            Util.exe(PTIWrapper.create(SERIAL_NUMBER, "SWITCH", "SWITCH", SOURCE,
+                                   ConfigPriority.CONFIG_PRIO_UNDERLAY_TOP_LVL1 + 2,
+                                   "bgp_neighbor_route_map",  nvPairs))
+        if ROUTE_MAP_OUT != "":
+            nvPairs = {"BGP_AS": fabricAsn,
+                       "VRF_NAME": intfVrf,
+                       "BGP_NEIGHBOR_IP": NEIGHBOR_IP,
+                       "IP_TYPE": "ipv4",
+                       "ROUTE_MAP": ROUTE_MAP_OUT,
+                       "DIRECTION": "out"}
+            Util.exe(PTIWrapper.create(SERIAL_NUMBER, "SWITCH", "SWITCH", SOURCE,
+                                   ConfigPriority.CONFIG_PRIO_UNDERLAY_TOP_LVL1 + 2,
+                                   "bgp_neighbor_route_map",  nvPairs))
+
+        if IPv6 != "":
+            if IPV6_ROUTE_MAP_IN != "":
+                nvPairs = {"BGP_AS": fabricAsn,
+                           "VRF_NAME": intfVrf,
+                           "BGP_NEIGHBOR_IP": NEIGHBOR_IPv6,
+                           "IP_TYPE": "ipv6",
+                           "ROUTE_MAP": IPV6_ROUTE_MAP_IN,
+                           "DIRECTION": "in"}
+                Util.exe(PTIWrapper.create(SERIAL_NUMBER, "SWITCH", "SWITCH", SOURCE,
+                                       ConfigPriority.CONFIG_PRIO_UNDERLAY_TOP_LVL1 + 2,
+                                       "bgp_neighbor_route_map",  nvPairs))
+            if IPV6_ROUTE_MAP_OUT != "":
+                nvPairs = {"BGP_AS": fabricAsn,
+                           "VRF_NAME": intfVrf,
+                           "BGP_NEIGHBOR_IP": NEIGHBOR_IPv6,
+                           "IP_TYPE": "ipv6",
+                           "ROUTE_MAP": IPV6_ROUTE_MAP_OUT,
+                           "DIRECTION": "out"}
+                Util.exe(PTIWrapper.create(SERIAL_NUMBER, "SWITCH", "SWITCH", SOURCE,
+                                       ConfigPriority.CONFIG_PRIO_UNDERLAY_TOP_LVL1 + 2,
+                                       "bgp_neighbor_route_map",  nvPairs))
+
+        respObj.setSuccessRetCode()
+        return respObj
+    except respObjError as e:
+        Wrapper.print("Ext_VRF_Lite_Routed add [%s] exception!" % SERIAL_NUMBER)
+        return e.value
+
+def restore_l3_portchannel(if_name, pti):
+    l3_po_nvPairs = copy.deepcopy(pti.getNvPairs())
+    Wrapper.print("restore_l3_portchannel: Existing NV Pairs [%s]]" % str(l3_po_nvPairs))
+    l3_po_nvPairs["SOURCE"] = ""
+    l3_po_nvPairs["IP"] = ""
+    l3_po_nvPairs["PREFIX"] = ""
+    l3_po_nvPairs["INTF_VRF"] = ""
+    l3_po_nvPairs["MTU"] = "9216"
+    l3_po_nvPairs["ROUTING_TAG"] = ""
+    l3_po_nvPairs["DESC"] = ""
+    l3_po_nvPairs["CONF"] = ""
+    l3_po_nvPairs["PO_ID"] = if_name
+
+    #Need to capture desc and FF of port channel member interfaces if any
+    dictObj ={"MEMBER_INTERFACES": l3_po_nvPairs["MEMBER_INTERFACES"],
+              "SERIAL_NUMBER": SERIAL_NUMBER}
+    responseDict = Util.exe(PTIWrapper.executePyTemplateMethod("fabric_utility_11_1", dictObj, "capture_po_member_interface_ptis"))
+
+    #Delete l3 po PTI
+    oldRmIds = Util.exe(PTIWrapper.getRMIDs(pti.getPolicyId()))
+    for rmId in oldRmIds:
+        RM.deleteResource(rmId)
+    PTIWrapper.deleteInstance(pti.getPolicyId())
+    fabricName = Util.exe(InventoryWrapper.getFabricNameForSwitch(SERIAL_NUMBER))
+    pcRmId = Util.getRMIdForPo(fabricName, SERIAL_NUMBER, if_name)
+    Util.exe(PTIWrapper.createOrUpdate(SERIAL_NUMBER, "INTERFACE",
+                              if_name, "",
+                              ConfigPriority.CONFIG_PRIO_INTF, pcRmId,
+                              "int_l3_port_channel",
+                              l3_po_nvPairs))
+
+    #Re-Create the desc and FF of port channel member interfaces if any
+    dictObj = {"SERIAL_NUMBER": SERIAL_NUMBER, "IF_NAME": if_name,
+               "memberInterfaces": responseDict["memberInterfaces"],
+               "memberDescDict": responseDict["memberDescDict"],
+               "memberFecDict": responseDict["memberFecDict"],
+               "memberConfDict": responseDict["memberConfDict"],
+               "memberAdminStateDict": responseDict["memberAdminStateDict"],
+               "pcMemTemplateName": "int_l3_port_channel_member"}
+    Util.exe(PTIWrapper.executePyTemplateMethod("fabric_utility_11_1", dictObj, "create_po_member_interface_ptis"))
+
+def delete(Force=False):
+    try:
+        intfName = Util.exe(Helper.getInterfaceName2(IF_NAME))
+        Wrapper.print("Ext_VRF_Lite_Routed delete [%s] POLICY ID %s Interface %s Force %s" %(SERIAL_NUMBER, POLICY_ID, intfName, Force))
+
+        #if called by topdown, SOURCE will be set. Then user will not be able to edit from View/Edit policies
+        jython_source  = ""
+        try:
+            jython_source = SOURCE
+        except:
+            jython_source = POLICY_ID
+            pass
+        
+        SOURCE = jython_source
+        Wrapper.print("Source of VRF Lite Jython is %s for switch %s" %(SOURCE, SERIAL_NUMBER))
+        
+        #Get all PTIs for the SOURCE VRF Lite Extension
+        wrappersResp = PTIWrapper.get(SERIAL_NUMBER, SOURCE)
+        if wrappersResp.isRetCodeSuccess():
+            vrfLitePolicies = wrappersResp.getValue()
+            for pti in vrfLitePolicies:
+                Wrapper.print("VRF Lite policy to DELETE: %s %s" % (pti.getPolicyId(), pti.getTemplateName()))
+                if pti.getTemplateName() == "ext_int_routed_host_11_1":
+                    fec = pti.getNvPairs().get("FEC", "auto")
+                    PTIWrapper.deleteInstance(pti.getPolicyId())
+                    if not Force:
+                        # Created a vanilla routed interface PTI
+                        Util.exe(PTIWrapper.createOrUpdate(SERIAL_NUMBER, "INTERFACE",
+                                              intfName, "",
+                                              ConfigPriority.routed_host,
+                                              "int_routed_host",
+                                              {"INTF_NAME": intfName,
+                                               "INTF_VRF" : "",
+                                               "IP" : "",
+                                               "PREFIX" : "",
+                                               "ROUTING_TAG" : "",
+                                               "MTU": "9216",
+                                               "SPEED": "Auto",
+                                               "DESC": "",
+                                               "FEC": fec,
+                                               "CONF": "",
+                                               "ADMIN_STATE": "true"}))
+                elif pti.getTemplateName() == "int_l3_port_channel_internal":
+                    if not Force:
+                        restore_l3_portchannel(intfName.lower(), pti)
+                else:
+                    PTIWrapper.markDeleteInstance(pti.getPolicyId())
+
+        respObj = WrappersResp.getRespObj()
+        respObj.setSuccessRetCode()
+        return respObj
+    except respObjError as e:
+        return e.value
+
+##
+
