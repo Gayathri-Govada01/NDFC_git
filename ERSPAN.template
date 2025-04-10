@@ -1,0 +1,655 @@
+##template properties
+name =ERSPAN;
+description = Template to configure Encapsulated Remote Switched Port Analyzer (ERSPAN) configuration on Cisco NX-OS devices.;
+tags = ;
+userDefined = false;
+supportedPlatforms = N9K;
+templateType = POLICY;
+templateSubType = DEVICE;
+contentType = PYTHON_CLI;
+implements = ;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+
+#    Copyright (c) 2024 by Cisco Systems, Inc.
+#    All rights reserved.
+
+@(IsInternal=true)
+string SERIAL_NUMBER;
+
+@(IsInternal=true)
+string POLICY_ID;
+
+@(IsMandatory=true, DisplayName="ERSPAN Type", Description="erspan-source or erspan-destination")
+enum ERSPAN_TYPE {
+  validValues=erspan-source,erspan-destination;
+  defaultValue=erspan-source;
+};
+
+@(IsMandatory=true, DisplayName="IP Version", Description="Protocol used by Origin and Source/Destination: IPv4 or IPv6")
+enum IP_VERSION {
+  validValues=IPv4,IPv6;
+  defaultValue=IPv4;
+};
+
+@(IsMandatory=true, DisplayName="ERSPAN Origin IP Address")
+ipAddress ORIGIN_IP;
+
+# 1-32 or all
+@(IsMandatory=true, DisplayName="ERSPAN Session ID", Description="A number in the range <1-32>")
+integer SESSION_ID {
+  min=1;
+  max=32;
+};
+
+@(IsMandatory=true, DisplayName="ERSPAN ID", Description="A number in the range <1-1023>")
+integer ERSPAN_ID {
+  min=1;
+  max=1023;
+};
+
+@(IsMandatory=false, DisplayName="ERSPAN Description")
+string DESC {
+  minLength = 1;
+  maxLength = 32;
+};
+
+# sources
+@(IsMandatory=false, Section="ERSPAN Source", IsShow="ERSPAN_TYPE!=erspan-destination", DisplayName="Sources")
+struct ITEM {
+  @(IsMandatory=true, DisplayName="Source Type", Description="interface, sup-eth0 or vlan")
+  enum SOURCE_TYPE {
+    validValues=vlan,interface,sup-eth0;
+    defaultValue=interface;
+  };
+
+
+
+  @(IsMandatory=true, IsShow="SOURCE_TYPE!=sup-eth0", DisplayName="ERSPAN source: value, values, or range", Description="One or more Ethernet port(s) eg: Ethernet1/1, e1/5-7, port-channel(s) eg: port-channel1, port-channel7-9, or VLAN(s) eg: 1,5")
+  string SOURCE_VALUE {
+    minLength = 1;
+    maxLength = 128;
+  };
+
+  # note that SOURCE_TYPE is rx only for vlan
+  @(IsMandatory="SOURCE_TYPE!=sup-eth0&&SOURCE_TYPE!=vlan", IsShow="SOURCE_TYPE==interface", DisplayName="ERSPAN Direction",  Description="Traffic direction to copy as ingress, egress, or both.  Limited to rx only for sup-eth0 and vlan")
+  enum DIRECTION_INTERFACE
+  {
+  validValues=tx,rx,both;
+  defaultValue=both;
+  };
+
+} sources[];
+
+@(IsMandatory=true, Section="ERSPAN Source", IsShow="ERSPAN_TYPE==erspan-source", DisplayName="ERSPAN Destination IP Address", Description="Please verify you have a route to this Destination Address")
+ipAddress DEST_IP;
+
+@(IsMandatory=true, Section="ERSPAN Destination", IsShow="ERSPAN_TYPE==erspan-destination", DisplayName="ERSPAN Source IP Address")
+ipAddress SRC_IP;
+
+@(IsMandatory=false, Section="ERSPAN Destination", IsShow="ERSPAN_TYPE!=erspan-source", DisplayName="Destinations", Description="Destination interfaces must be in switchport monitor mode")
+struct ITEM {
+  @(IsMandatory=true, DisplayName="ERSPAN destination: value, values, or range", Description="One or more Ethernet port(s) eg: Ethernet1/1, e1/5-7, or port channel(s) eg: port-channel1, port-channel7-9.  Destination interfaces must be in switchport monitor mode")
+  string DEST_VALUE {
+    minLength = 1;
+    maxLength = 128;
+  };
+} destinations[];
+
+
+#vlan filter(s)
+@(IsMandatory=false, Section="Advanced", IsShow="ERSPAN_TYPE!=erspan-destination", DisplayName="VLAN Filter(s)")
+struct VLAN_FILTERS {
+  # will validate input(s) allowing range and comma sep.
+  @(IsMandatory=true, DisplayName="ERSPAN vlan filter(s)",  Description="A VLAN, or comma separated list, or range of VLANs")
+  string FILTER_VALUE {
+    minLength = 1;
+    maxLength = 128;
+  };
+} vlanFilters[];
+
+# access group filter
+@(IsMandatory=false, Section="Advanced", IsShow="ERSPAN_TYPE!=erspan-destination", DisplayName="ERSPAN ACL filter(s)", Description="ERSPAN ACL filter (use the standard template to create the ACL)")
+string ACL_FILTER {
+  minLength = 1;
+  maxLength = 64;
+};
+
+@(IsMandatory=true, IsShow="ERSPAN_TYPE==erspan-source", DisplayName="ERSPAN VRF", Description="ERSPAN VRF name, default VRF if not specified")
+string VRF_NAME {
+  minLength = 1;
+  maxLength = 32;
+  defaultValue = default;
+};
+
+@(IsMandatory=false, Section="Advanced", IsShow="ERSPAN_TYPE==erspan-source", DisplayName="IP TTL", Description="IP TTL. A number in the range <0-255>")
+integer IP_TTL {
+  min=1;
+  max=255;
+};
+
+@(IsMandatory=false, Section="Advanced", IsShow="ERSPAN_TYPE==erspan-source", DisplayName="IP DSCP", Description="DSCP value of packets in the ERSPAN traffic. A number in the range <0-63>")
+integer IP_DSCP {
+  min=0;
+  max=63;
+};
+
+@(IsMandatory=false, Section="Advanced", IsShow="ERSPAN_TYPE==erspan-source", DisplayName="Use Type 3 Header", Description="Indicate the use of Type 3 header.  Type 2 is the default")
+boolean TYPE3_HEADER
+{
+defaultValue=false;
+};
+
+@(IsMandatory=false, Section="Advanced", IsShow="TYPE3_HEADER==true", DisplayName="Marker Packet", Description="Marker Packet send interval (in milliseconds). A number in the range <100-1000>")
+integer MARKER_PACKET {
+  min=100;
+  max=1000;
+};
+
+@(IsMandatory=false, Section="Advanced", IsShow="ERSPAN_TYPE==erspan-source", DisplayName="MTU", Description="ERSPAN truncation to MTU size. A number in the range <512-1518>")
+integer TRUNCATION_MTU {
+  min=512;
+  max=1518;
+};
+
+@(IsMandatory=false, DisplayName="No Shut / Enable ", Description="Uncheck to Shut / Disable")
+boolean NO_SHUT
+{
+defaultValue=true;
+};
+
+##
+##template content
+
+from com.cisco.dcbu.vinci.rest.services.jython import PTIWrapper as PTI
+from com.cisco.dcbu.vinci.rest.services.jython import InventoryWrapper
+from com.cisco.dcbu.vinci.rest.services.jython import Wrapper
+from com.cisco.dcbu.vinci.rest.services.jython import WrappersResp
+from com.cisco.dcbu.vinci.rest.services.jython import FabricWrapper
+from distutils.version import LooseVersion
+from utility import *
+
+from string import Template
+from utility import *
+import ast
+import struct
+import re
+import traceback
+
+def valid_session(input_string):
+    # Define the regex pattern
+    # ^(?:all|[1-9]|[12][0-9]|3[0-2])$ matches 'all' or numbers 1-32
+    pattern = r'^(?:[1-9]|[12][0-9]|3[0-2])$'
+
+    # Use the fullmatch method to check if the entire string matches the pattern
+    # note that on switch all is a possible input but only for "shut" case.
+    if re.match(pattern, input_string):
+        return True  # Valid input
+    else:
+        return False  # Invalid input
+
+def addToError(respObj, errorMsg):
+    respObj.addErrorReport("add", errorMsg, SERIAL_NUMBER)
+    respObj.setFailureRetCode()
+
+def validate_ipv4_address(ipv4_address):
+    resp = FabricWrapper.isValidIPv4(ipv4_address)
+    return resp.isRetCodeSuccess()
+
+def validate_ipv6_address(ipv6_address):
+    resp = FabricWrapper.isValidIPv6(ipv6_address)
+    return resp.isRetCodeSuccess()
+
+def validateRange(inStr, min, max):
+    pattern = r'^\d+-\d+$'
+    if not re.match(pattern,inStr):
+        return "problem parsing range"
+    w = inStr.split('-')
+    if len(w) != 2:
+        return "problem parsing range"
+    if not int(w[0]) < int(w[1]):
+        return "left side of a range must be a smaller value than the right side"
+    elif (int(w[0]) < min or int(w[0]) > max):
+        return "valid range value is <%s-%s>" % (min, max)
+    elif (int(w[1]) < min or int(w[1]) > max):
+        return "valid range value is <%s-%s>" % (min, max)
+    return None
+
+# Note that vlan source is documented as being rx only, but CLI allowed both on ref device
+def validateSource(inType, inVal, inDir):
+    devModel = Util.exe(InventoryWrapper.getSwitchModel(SERIAL_NUMBER))
+    imageVersion = Util.exe(ImageManagementWrapper.getNXOSVersion(SERIAL_NUMBER))
+
+    if inType == "vlan":
+
+        unsupportedModels = ["N3K-C36180YC-R","N3K-C36480LD-R2","N3K-C3636C-R"]
+        for unsup in unsupportedModels:
+            if unsup == devModel:
+                return "source vlan not supported on this platform"
+
+        inVal = "".join(inVal.split())   # lose all whitespace
+        pattern = r'^[\d,-]+$'
+        if not re.match(pattern, inVal):
+            return "Problem parsing 'source vlan %s' see description for valid format" % (inVal)
+        vals = inVal.split(',')
+        vals.sort()
+        for x in vals:
+            if x is None or not x.strip():
+                return "Problem parsing 'source vlan %s' see description for valid format" % (inVal)
+            elif '-' in x:
+                errStr = validateRange(x, 1, 4092)
+                if errStr is not None:
+                    return "Problem parsing 'source vlan %s' %s" % (inVal, errStr)
+            elif not x.isnumeric():
+                return "Problem parsing 'source vlan %s' numeric values or ranges only" % (inVal)
+            elif (int(x) < 1 or int(x) > 4092):
+                return "Problem parsing input 'source vlan %s' valid vlan range is <1-4092>" % (inVal)
+    elif inType == "sup-eth0":
+        pass
+    elif inType == "interface":        
+        inVal = "".join(inVal.split())
+        splitList = inVal.split(",")
+        for splitVal in splitList:
+            try:
+                vals = Util.expand_interface_range(splitVal)
+                splitExpandedList = vals.split(",")
+                for expandedVal in splitExpandedList:
+                    ptiList = Util.exe(PTIWrapper.getPTIs(SERIAL_NUMBER, "INTERFACE", expandedVal, "PYTHON"))
+                    if not ptiList:
+                        #if the list is empty perhaps valid syntax but not actual interface?
+                        return "No policy found for this interface %s. Please attach a valid interface policy" % (expandedVal)
+
+                if vals == "":
+                    return "Problem parsing 'source interface' portion: %s see description for valid format" % (splitVal)
+                if ("Ethernet" in vals) and not ("/" in vals):
+                    return "Problem parsing 'source interface' portion: %s see description for valid format" % (splitVal)
+            except:
+                pass
+                return "Problem parsing 'source interface' portion: %s see description for valid format" % (splitVal)
+        
+    else:
+        return "Problem with unknown source type [%s]" % (inType)
+
+    return None
+
+def validVlanFilters(inVal):
+    inVal = "".join(inVal.split())
+    pattern = r'^[\d,-]+$'
+    if not re.match(pattern, inVal):
+        return False
+    vals = inVal.split(',')
+    vals.sort()
+    for x in vals:
+        if x is None or not x.strip():
+            return False
+        elif '-' in x:
+            errStr = validateRange(x, 1, 4092)
+            if errStr is not None:
+                return False
+        elif not x.isnumeric():
+            return False
+        elif (int(x) < 1 or int(x) > 4092):
+            return False
+    return True
+
+def validateDestination(inVal):
+    devModel = Util.exe(InventoryWrapper.getSwitchModel(SERIAL_NUMBER))
+    imageVersion = Util.exe(ImageManagementWrapper.getNXOSVersion(SERIAL_NUMBER))
+
+    inVal = "".join(inVal.split())
+    splitList = inVal.split(",")
+    for splitVal in splitList:
+        try:
+            vals = Util.expand_interface_range(splitVal)            
+            if vals == "":
+                return "Problem parsing 'destination interface' portion: %s see description for valid format" % (splitVal)
+            if ("Ethernet" in vals) and not ("/" in vals):
+                return "Problem parsing 'destination interface' portion: %s see description for valid format" % (splitVal)
+
+            splitExpandedList = vals.split(",")
+            for expandedVal in splitExpandedList:
+                foundMonitor = False
+
+                ptiList = Util.exe(PTIWrapper.getPTIs(SERIAL_NUMBER, "INTERFACE", expandedVal, "PYTHON"))
+                if not ptiList:
+                    #if the list is empty perhaps valid syntax but not actual interface?
+                    return "No policy found for this interface %s. Please attach a valid interface policy and enable ERSPAN monitor" % (expandedVal)
+
+                for pti in ptiList:
+                    checkMonitor = pti.getNvPairs().get("ENABLE_MONITOR", "")
+                    if checkMonitor == "true":
+                        foundMonitor = True
+                    break
+
+                if not foundMonitor:
+                    return "Interface %s does not appear to be in monitor mode.  Enable from interface policy." % (expandedVal)
+
+
+        except:
+            pass
+            return "Problem parsing 'destination interface' portion: %s see description for valid format" % (splitVal)
+
+    return None
+
+def validateInputs():
+    errObj = WrappersResp.getRespObj()
+    devModel = Util.exe(InventoryWrapper.getSwitchModel(SERIAL_NUMBER))
+    imageVersion = Util.exe(ImageManagementWrapper.getNXOSVersion(SERIAL_NUMBER))
+
+    if not devModel.startswith("N9K"):
+        errorMsg = "Template only supported on N9K platforms"
+        addToError(errObj, errorMsg)
+        return errObj
+
+    if not valid_session(SESSION_ID):
+        errorMsg = "Invalid session id [%s].  1-32" % (SESSION_ID)
+        addToError(errObj, errorMsg)
+        return errObj
+
+    if ERSPAN_TYPE == "erspan-destination":
+        if LooseVersion(imageVersion) < LooseVersion("9.3(5)") and devModel.startswith("N9K-C93") and devModel.endswith("-FX"):
+            errorMsg = "ERSPAN destination not supported on Nexus 9300-GX platform prior to 9.3(5)"
+            addToError(errObj, errorMsg)
+            return errObj
+
+    if IP_VERSION == "IPv4":
+        if not validate_ipv4_address(ORIGIN_IP):
+            errorMsg = "Origin IPv4 address does not appear valid [%s]" % (ORIGIN_IP)
+            addToError(errObj, errorMsg)
+            return errObj
+    elif IP_VERSION == "IPv6":
+        if not validate_ipv6_address(ORIGIN_IP):
+            errorMsg = "Origin IPv6 address does not appear valid [%s]" % (ORIGIN_IP)
+            addToError(errObj, errorMsg)
+            return errObj
+    else:
+        errorMsg = "Unknown IP address version [%s]" % (IP_VERSION)
+        addToError(errObj, errorMsg)
+        return errObj
+
+    # check for existing espan policies.  need to have same origin IP
+    ptiList = Util.exe(PTIWrapper.get(SERIAL_NUMBER, "SWITCH", "SWITCH", "", "ERSPAN"))
+    if ptiList:
+        for pti in ptiList:
+            otherOrigin = pti.getNvPairs().get("ORIGIN_IP", "")
+            otherPolicyId = pti.getNvPairs().get("POLICY_ID", "")
+            if otherPolicyId != None and otherPolicyId == POLICY_ID:
+                continue
+            if otherOrigin != ORIGIN_IP:
+                errorMsg = "Another ERSPAN policy already exists using Origin IP Address %s.  Must used the same IP." % (otherOrigin)
+                addToError(errObj, errorMsg)
+                return errObj
+
+    if ERSPAN_TYPE == "erspan-source":
+        if sources == None or not sources:
+            errorMsg = "Policy must provide at least one source"
+            addToError(errObj, errorMsg)
+            return errObj
+
+        sourcesList = ast.literal_eval(sources)
+        for src in sourcesList["sources"]:
+            if not hasattr(src, 'get'):
+                errorMsg = "problem with %s" % (sourcesList)
+                addToError(errObj, errorMsg)
+                return errObj
+
+            if devModel.startswith("N9K-C9808") and src.get("DIRECTION_INTERFACE","") != "rx":
+                errorMsg = "On Nexus 9808 only RX supported"
+                addToError(errObj, errorMsg)
+                return errObj                
+
+            errorMsg = validateSource(src.get("SOURCE_TYPE"), src.get("SOURCE_VALUE","").lower(), src.get("DIRECTION_INTERFACE","").lower())
+            if errorMsg != None:
+                addToError(errObj, errorMsg)
+                return errObj
+
+        if vlanFilters != None and vlanFilters:
+            vlanFiltersList = ast.literal_eval(vlanFilters)
+            for vf in vlanFiltersList["vlanFilters"]:
+                if not validVlanFilters(vf.get("FILTER_VALUE")):
+                    errorMsg = "This vlan input does not appear valid [%s].  See description for limitations" % (vf)
+                    addToError(errObj, errorMsg)
+                    return errObj
+
+        # destination ip <address>
+        if IP_VERSION == "IPv4":
+            if not validate_ipv4_address(DEST_IP):
+                errorMsg = "Destination IPv4 address does not appear valid [%s]" % (DEST_IP)
+                addToError(errObj, errorMsg)
+                return errObj
+        elif IP_VERSION == "IPv6":
+            if not validate_ipv6_address(DEST_IP):
+                errorMsg = "Destination IPv6 address does not appear valid [%s]" % (DEST_IP)
+                addToError(errObj, errorMsg)
+                return errObj
+        else:
+            errorMsg = "Unknown IP address version [%s]" % (IP_VERSION)
+            addToError(errObj, errorMsg)
+            return errObj
+
+    if ERSPAN_TYPE == "erspan-destination":
+        if destinations == None or not destinations:
+            errorMsg = "Policy must provide at least one destination"
+            addToError(errObj, errorMsg)
+            return errObj
+
+        destinationsList = ast.literal_eval(destinations)
+        for dest in destinationsList["destinations"]:
+            if not hasattr(dest, 'get'):
+                errorMsg = "problem with %s" % (destinationsList)
+                addToError(errObj, errorMsg)
+                return errObj
+
+            errorMsg = validateDestination(dest.get("DEST_VALUE","").lower())
+            if errorMsg != None:
+                addToError(errObj, errorMsg)
+                return errObj
+
+        # destination ip <address>
+        if IP_VERSION == "IPv4":
+            if not validate_ipv4_address(SRC_IP):
+                errorMsg = "Source IPv4 address does not appear valid [%s]" % (SRC_IP)
+                addToError(errObj, errorMsg)
+                return errObj
+        elif IP_VERSION == "IPv6":
+            if not validate_ipv6_address(SRC_IP):
+                errorMsg = "Source IPv6 address does not appear valid [%s]" % (SRC_IP)
+                addToError(errObj, errorMsg)
+                return errObj
+        else:
+            errorMsg = "Unknown IP address version [%s]" % (IP_VERSION)
+            addToError(errObj, errorMsg)
+            return errObj
+
+    if TYPE3_HEADER == "true":
+        if (LooseVersion(imageVersion) == LooseVersion("9.3(3)")):
+            errorMsg = "ERSPAN Type 3 Header not supported in  [%s]" % (imageVersion)
+            addToError(errObj, errorMsg)
+            return errObj
+        if LooseVersion(imageVersion) < LooseVersion("9.3(5)") and devModel.startswith("N9K-C93") and devModel.endswith("-FX"):
+            errorMsg = "ERSPAN Type 3 Header not supported on Nexus 9300-GX platform prior to 9.3(5)"
+            addToError(errObj, errorMsg)
+            return errObj
+
+    if devModel.startswith("N9K-C9808"):
+        if LooseVersion(imageVersion) < LooseVersion("10.3(1)F"):
+            errorMsg = "ERSPAN not supported on Nexus 9808 platform prior to 10.3(1)F"
+            addToError(errObj, errorMsg)
+            return errObj
+
+        if TYPE3_HEADER == "true":
+            errorMsg = "ERSPAN Type 3 Header not supported on Nexus 9808 platform"
+            addToError(errObj, errorMsg)
+            return errObj
+
+        if ERSPAN_TYPE == "erspan-destination":
+            errorMsg = "ERSPAN destination not supported on Nexus 9808 platform"
+            addToError(errObj, errorMsg)
+            return errObj            
+
+    if devModel.startswith("N9K-C9804"):
+        if LooseVersion(imageVersion) < LooseVersion("10.4(1)F"):
+            errorMsg = "ERSPAN not supported on Nexus 9804 platform prior to 10.4(1)F"
+            addToError(errObj, errorMsg)
+            return errObj
+
+        if TYPE3_HEADER == "true":
+            errorMsg = "ERSPAN Type 3 Header not supported on Nexus 9804 platform"
+            addToError(errObj, errorMsg)
+            return errObj
+
+        if ERSPAN_TYPE == "erspan-destination":
+            errorMsg = "ERSPAN destination not supported on Nexus 9804 platform"
+            addToError(errObj, errorMsg)
+            return errObj   
+
+    if devModel.startswith("N9K-C9332D-H2R"):
+        if LooseVersion(imageVersion) < LooseVersion("10.4(1)F"):
+            errorMsg = "ERSPAN not supported on Nexus 9332D-H2R platform prior to 10.4(1)F"
+            addToError(errObj, errorMsg)
+            return errObj
+
+        if TYPE3_HEADER == "true":
+            errorMsg = "ERSPAN Type 3 Header not supported on Nexus 9332D-H2R platform"
+            addToError(errObj, errorMsg)
+            return errObj
+
+    return None
+
+# at this point inType is either ethernet or port-channel.  the others were covered already.
+def normalizeInterfaces(inVal):
+    retlist = []
+    inVal = "".join(inVal.split())
+
+    splitList = inVal.split(",")
+    for splitVal in splitList:
+        expanded = Util.expand_interface_range(splitVal)
+        vals = expanded.split(",")
+        for val in vals:
+            if "port-channel" in val.lower():
+                val = val.lower()
+            retlist.append(val)
+
+    return retlist
+
+def add():
+    respObj = WrappersResp.getRespObj()
+    try:
+        devModel = Util.exe(InventoryWrapper.getSwitchModel(SERIAL_NUMBER))
+        imageVersion = Util.exe(ImageManagementWrapper.getNXOSVersion(SERIAL_NUMBER))
+
+        errObj = validateInputs()
+        if errObj != None:
+            return errObj
+
+        config_builder = ConfigBuilder()
+
+        if IP_VERSION == "IPv4":
+            config_builder.add_config('monitor erspan origin ip-address ' + ORIGIN_IP + ' global')
+        else:            # if IP_VERSION == "IPv6":
+            config_builder.add_config('monitor erspan origin ipv6-address ' + ORIGIN_IP + ' global')
+    
+        config_builder.add_config('monitor session ' + SESSION_ID + ' type ' + ERSPAN_TYPE)
+
+        config_builder.change_space(2)
+
+        if DESC != None and DESC != "":
+            config_builder.add_config('description ' + DESC)
+
+        if ERSPAN_TYPE == "erspan-source":
+            # sources
+            sourcesList = ast.literal_eval(sources)
+            for src in sourcesList["sources"]:
+                if src.get("SOURCE_TYPE") == "vlan":
+                    vlans = src.get("SOURCE_VALUE")
+                    vlanList = vlans.strip().split(',')
+                    vlanNumbers = [int(num) for num in vlanList]
+                    vlanNumbers.sort()
+                    vlanSorted = ",".join(str(x) for x in vlanNumbers)
+                    config_builder.add_config('source vlan ' + vlanSorted + ' rx')
+                elif src.get("SOURCE_TYPE") == "sup-eth0":
+                        config_builder.add_config('source interface sup-eth0 rx')
+                else:
+                    normIntfList = normalizeInterfaces(src.get("SOURCE_VALUE",""))
+                    for intf in normIntfList:
+                        config_builder.add_config('source interface ' + intf + ' ' + src.get("DIRECTION_INTERFACE","").lower())
+    
+            # vlan filters
+            if vlanFilters != None and vlanFilters:
+                vlanFiltersList = ast.literal_eval(vlanFilters)
+                for vf in vlanFiltersList["vlanFilters"]:
+                    filterValue = vf.get("FILTER_VALUE")
+                    config_builder.add_config('filter vlan ' + filterValue)
+
+            # access group filter
+            if ACL_FILTER != None and  ACL_FILTER != "":
+                config_builder.add_config('filter access-group ' +  ACL_FILTER)
+
+            # destination ip <address>
+            if IP_VERSION == "IPv4":
+                config_builder.add_config('destination ip ' + DEST_IP)
+            else:          # if IP_VERSION == "IPv6":
+                config_builder.add_config('destination ipv6 ' + DEST_IP)
+
+            # vrf - The VRF name can be any case-sensitive, alphanumeric string up to 32 characters.
+            config_builder.add_config('vrf ' + VRF_NAME)
+
+            # ttl (optional)
+            if IP_TTL != None and IP_TTL != "":
+                config_builder.add_config('ip ttl ' + IP_TTL)
+
+            # ip dscp (optional)
+            if IP_DSCP != None and IP_DSCP != "":
+                config_builder.add_config('ip dscp ' + IP_DSCP)
+
+            if TYPE3_HEADER == "true":
+                config_builder.add_config('header-type 3')
+
+                if MARKER_PACKET != None and MARKER_PACKET != "":
+                    config_builder.add_config('marker-packet ' + MARKER_PACKET)
+
+            if TRUNCATION_MTU != None and TRUNCATION_MTU != "":
+                config_builder.add_config('mtu ' + TRUNCATION_MTU)
+
+            config_builder.add_config('erspan-id ' + ERSPAN_ID)
+
+        elif ERSPAN_TYPE == "erspan-destination":
+            destinationsList = ast.literal_eval(destinations)
+            for dest in destinationsList["destinations"]:
+                normIntfList = normalizeInterfaces(dest.get("DEST_VALUE",""))
+                for intf in normIntfList:
+                    config_builder.add_config('destination interface ' + intf)
+
+            if IP_VERSION == "IPv4":
+                config_builder.add_config('source ip ' + SRC_IP)
+            else:          # if IP_VERSION == "IPv6":
+                config_builder.add_config('source ipv6 ' + SRC_IP)
+
+            config_builder.add_config('erspan-id ' + ERSPAN_ID)
+
+        if NO_SHUT == "true":
+            config_builder.add_config('no shut')
+
+        gen_config = config_builder.get_config()
+
+        respObj.setGeneratedConfig(gen_config)
+        respObj.setSuccessRetCode()
+        return respObj        
+    except:
+        errorMsg = "An exception occurred %s" % (traceback.format_exc())
+        addToError(respObj, errorMsg)
+        return respObj
+
+
+def delete(Modify=False):
+    try:
+        respObj = WrappersResp.getRespObj()
+        respObj.setSuccessRetCode()
+        return respObj
+    except respObjError as e:
+        return e.value
+##
+
