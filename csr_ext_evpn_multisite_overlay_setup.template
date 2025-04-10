@@ -1,0 +1,488 @@
+##template properties
+name =csr_ext_evpn_multisite_overlay_setup;
+description = Inter-fabric link template for creating an overlay IFC for Multi-Site on CAT9000 switches;
+tags =csr_multiSiteOverlay;
+userDefined = true;
+supportedPlatforms = IOS-XE;
+templateType = POLICY;
+templateSubType = INTER_FABRIC_LINK;
+contentType = PYTHON;
+implements =implements;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+#    Copyright (c) 2018-2020 by Cisco Systems, Inc.
+#    All rights reserved.
+@(IsMandatory=true, IsInternal=true, IsSourceFabric=true)
+string SOURCE_FABRIC_NAME;
+@(IsMandatory=true, IsInternal=true, IsDestinationFabric=true)
+string DEST_FABRIC_NAME;
+@(IsMandatory=false, IsInternal=true, IsSourceDevice=true)
+string SOURCE_SERIAL_NUMBER;
+@(IsMandatory=true, IsInternal=true, IsDestinationDevice=true)
+string DEST_SERIAL_NUMBER;
+@(IsMandatory=true, IsInternal=true, IsSourceSwitchName=true)
+string SOURCE_SWITCH_NAME;
+@(IsMandatory=true, IsInternal=true, IsDestinationSwitchName=true)
+string DEST_SWITCH_NAME;
+@(IsMandatory=true, IsInternal=true, IsSourceInterface=true)
+interface SOURCE_IF_NAME;
+@(IsMandatory=true, IsInternal=true, IsDestinationInterface=true)
+interface DEST_IF_NAME;
+@(IsMandatory=true, IsInternal=true)
+string LINK_UUID
+{
+    defaultValue = LINK_UUID_1;
+};
+
+@(IsMandatory=false, DisplayName="Enable eBGP Password")
+boolean BGP_PASSWORD_ENABLE {
+defaultValue=false;
+};
+
+@(IsMandatory=true, IsShow="BGP_PASSWORD_ENABLE==true", DisplayName="BGP Neighbor<br/>Password", Description="Type 7 Encoded key")
+string BGP_PASSWORD {
+minLength = 1;
+maxLength = 130;
+regularExpr=^[a-fA-F0-9]+$;
+};
+
+@(IsMandatory=false, DisplayName="eBGP Multihop", Description="eBGP Time-To-Live Value for Remote Peer")
+integer BGP_MULTIHOP {
+min = 2;
+max = 255;
+defaultValue = 5;
+};
+
+##
+##template content
+from com.cisco.dcbu.vinci.rest.services.jython import PTIWrapper
+from com.cisco.dcbu.vinci.rest.services.jython import Wrapper
+from com.cisco.dcbu.vinci.rest.services.jython import WrappersResp
+from com.cisco.dcbu.vinci.rest.services.jython import InterfabricConnectionWrapper
+from com.cisco.dcbu.vinci.rest.services.jython import Helper
+from com.cisco.dcbu.vinci.rest.services.jython import TopologyWrapper
+from com.cisco.dcbu.vinci.rest.services.jython import InterfaceManagerWrapper
+
+from utility import *
+from topology import *
+import json
+    
+def getBGWLoopbackIp(sn, intf):
+
+    intfName = intf.lower()
+
+    ipFromPTI = ""
+    ptiList = Util.exe(PTIWrapper.get(sn, "INTERFACE", intfName, intfName))
+    for pti in ptiList:
+        if pti.getTemplateName() == "loopback_interface" or pti.getTemplateName() == "loopback_interface_with_tag":
+            ipFromPTI = pti.getNvPairs()["IP"]
+            break
+        
+    return ipFromPTI
+
+def getCSRLoopbackIp(sn, intf):
+
+    intfName = intf.lower()
+
+    Wrapper.print("MULTISITE_OVERLAY IFC : CSR SN %s Intf %s " %(sn, intfName))
+    ipFromPTI = ""
+    ptiList = Util.exe(PTIWrapper.get(sn, "INTERFACE", intfName, intfName))
+    for pti in ptiList:
+        if pti.getTemplateName() == "csr_int_loopback_interface_ip" or pti.getTemplateName() == "csr_int_interface_ip":
+            ipFromPTI = pti.getNvPairs()["IP"]
+            break
+        
+    return ipFromPTI
+
+def add():
+    try:
+        Wrapper.print("==========csr_multisite overlay setup add==========")
+        utilObj = Util()
+        link_type = 'reallink'
+        
+        respObj = WrappersResp.getRespObj()
+        
+        if SOURCE_FABRIC_NAME == DEST_FABRIC_NAME:
+            errorMsg = ("Source fabric :Dest Fabric %s:%s should not be same for inter fabric link"%
+                            (SOURCE_FABRIC_NAME, DEST_FABRIC_NAME))
+            respObj.addErrorReport(("InterFabricLink"+SOURCE_FABRIC_NAME+":"+DEST_FABRIC_NAME), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+
+        # get ASN for source fabric
+        helperResp = Helper.getFabricAsn(SOURCE_FABRIC_NAME)
+        if helperResp.isRetCodeSuccess():
+            asn = helperResp.getValue()
+        else:
+            Wrapper.print("Invalid ASN for Fabric %s" %(SOURCE_FABRIC_NAME))
+            return helperResp
+            
+        # get ASN for dest fabric
+        helperResp = Helper.getFabricAsn(DEST_FABRIC_NAME)
+        if helperResp.isRetCodeSuccess():
+            NEIGHBOR_ASN = helperResp.getValue()
+        else:
+            Wrapper.print("Invalid ASN for Fabric %s" %(DEST_FABRIC_NAME))
+            return helperResp
+
+        bgpPasswordEnable = "false"
+        bgpPassword = ""
+        # Type 7 is the only common option for N9K and CSR. Cleartext is not supported
+        bgpAuthKeyType = "7"
+
+        try:
+            bgpPasswordEnable = BGP_PASSWORD_ENABLE
+        except:
+            # upgrade case where variable may not exist
+            pass
+
+        if bgpPasswordEnable == "true":
+            try:
+                bgpPassword = BGP_PASSWORD
+            except:
+                # upgrade case where variable may not exist
+                bgpPassword = ""
+                pass
+
+        ebgp_multihop = "5"
+        try:
+            ebgp_multihop = BGP_MULTIHOP
+        except:
+            # upgrade case where variable may not exist
+            pass
+
+        print_variables(asn, NEIGHBOR_ASN)
+        Wrapper.print("MULTISITE_OVERLAY IFC : BGP Password: [%s]/[%s]/[%s]" % 
+                      (bgpPasswordEnable, bgpAuthKeyType, bgpPassword))
+
+        source_switch_managed = Util.exe(InterfabricConnectionWrapper.isSwitchDiscovered(SOURCE_SERIAL_NUMBER))
+        destination_switch_managed = Util.exe(InterfabricConnectionWrapper.isSwitchDiscovered(DEST_SERIAL_NUMBER))
+        source_fabric_type    =  Util.exe(Helper.getFabricType(SOURCE_FABRIC_NAME))
+        dest_fabric_type      =  Util.exe(Helper.getFabricType(DEST_FABRIC_NAME))
+        srcName = Util.exe(InventoryWrapper.getHostName(SOURCE_SERIAL_NUMBER))
+        destName = Util.exe(InventoryWrapper.getHostName(DEST_SERIAL_NUMBER))
+
+        #Need to have source fabric to be easy with BGW and destination to be external with CSR
+        if source_fabric_type == "External":
+            errorMsg = ("Source fabric %s cannot be of type External"%
+                            (SOURCE_FABRIC_NAME))
+            respObj.addErrorReport(("InterFabricLink"+SOURCE_FABRIC_NAME+":"+DEST_FABRIC_NAME), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+        if dest_fabric_type != "External":
+            errorMsg = ("Destination fabric %s needs to be of type External"%
+                            (DEST_FABRIC_NAME))
+            respObj.addErrorReport(("InterFabricLink"+SOURCE_FABRIC_NAME+":"+DEST_FABRIC_NAME), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+
+        #Check source device must be one of these: BGW, BGW Spine, BGW Super Spine
+        role = Util.exe(InterfabricConnectionWrapper.getSwitchRole(SOURCE_SERIAL_NUMBER))
+        Wrapper.print("MULTISITE_OVERLAY IFC : Source Switch role is %s" %(role))
+        if "border gateway" not in role.lower():
+            errorMsg = ("Source device %s(%s) needs to have role Border Gateway"%
+                        (srcName, SOURCE_SERIAL_NUMBER))
+            respObj.addErrorReport(("InterFabricLink"+SOURCE_FABRIC_NAME+":"+DEST_FABRIC_NAME), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj            
+
+        #Check dest device is a CSR
+        csr_presence_flag = Util.check_csr_presence(DEST_FABRIC_NAME, DEST_SERIAL_NUMBER)
+        if not csr_presence_flag:
+            errorMsg = ("Destination device %s(%s) needs a CSR 1000v"%
+                        (destName, DEST_SERIAL_NUMBER))
+            respObj.addErrorReport(("InterFabricLink"+SOURCE_FABRIC_NAME+":"+DEST_FABRIC_NAME), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+        
+        #Get src loopback IP, given SOURCE_SERIAL_NUMBER, SRC_IF_NAME
+        SOURCE_IP = getBGWLoopbackIp(SOURCE_SERIAL_NUMBER, SOURCE_IF_NAME)
+        if SOURCE_IP:
+            Wrapper.print("MULTISITE_OVERLAY IFC : Source switch Ip Address : %s " %(SOURCE_IP))
+        else:
+            errorMsg = ("Invalid Loopback IP address for %s(%s):%s"%
+                            (srcName, SOURCE_SERIAL_NUMBER, SOURCE_IF_NAME))
+            respObj.addErrorReport(("InterFabricLink"+SOURCE_FABRIC_NAME+":"+DEST_FABRIC_NAME), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+            
+        #Get dest loopback IP, given DEST_SERIAL_NUMBER, DEST_IF_NAME
+        NEIGHBOR_IP = getCSRLoopbackIp(DEST_SERIAL_NUMBER, DEST_IF_NAME)
+        if NEIGHBOR_IP:
+            Wrapper.print("MULTISITE_OVERLAY IFC : Dest switch Ip Address : %s " %(NEIGHBOR_IP))
+        else:
+            errorMsg = ("Invalid Loopback IP address for %s(%s):%s"%
+                            (destName, DEST_SERIAL_NUMBER, DEST_IF_NAME))
+            respObj.addErrorReport(("InterFabricLink"+SOURCE_FABRIC_NAME+":"+DEST_FABRIC_NAME), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+
+        if source_switch_managed and destination_switch_managed:
+            Wrapper.print("MULTISITE_OVERLAY IFC : set link type to reallink")
+            link_type = 'reallink'
+        else:
+            Wrapper.print("MULTISITE_OVERLAY IFC : set link type to metalink")
+            link_type = 'metalink'
+
+        source_switch_id =  Util.exe(InterfabricConnectionWrapper.getLanSwitchId(SOURCE_SERIAL_NUMBER));
+        destination_switch_id =  Util.exe(InterfabricConnectionWrapper.getLanSwitchId(DEST_SERIAL_NUMBER));
+        
+        Wrapper.print("MULTISITE_OVERLAY IFC : source switch Id is : %d" % (source_switch_id))
+        Wrapper.print("MULTISITE_OVERLAY IFC : dest switch Id is : %d" % (destination_switch_id))
+            
+        is_source_prototype_exists = Util.exe(InterfabricConnectionWrapper.isInterfabricExists(source_switch_id, SOURCE_IF_NAME,
+                                                             destination_switch_id, DEST_IF_NAME))
+                                                             
+        Wrapper.print("MULTISITE_OVERLAY IFC : Source Switch State is discoved by controller")
+        
+        if is_source_prototype_exists:
+            Wrapper.print("MULTISITE_OVERLAY IFC : Interfabric Update Operation")
+            update = True
+        else:
+            Wrapper.print("MULTISITE_OVERLAY IFC : Interfabric Insert Operation")
+            update = False
+                
+        # set SOURCE to LINK_UUID
+        SOURCE = LINK_UUID
+        
+        wrappersResp = PTIWrapper.get(SOURCE_SERIAL_NUMBER, 'SWITCH', 'SWITCH', SOURCE,
+                                              'ext_multisite_overlay_setup_11_1')
+                
+        if wrappersResp.isRetCodeSuccess():
+            ctrlPolicies = wrappersResp.getValue()
+            for policy in ctrlPolicies:
+                PTIWrapper.deleteInstance(policy.getPolicyId())
+                    
+        utilObj.exeVal(PTIWrapper.create(SOURCE_SERIAL_NUMBER, "SWITCH",
+                                             "SWITCH", SOURCE,
+                                             500,
+                                             "ext_multisite_overlay_setup_11_1",
+                                             {"IF_NAME": SOURCE_IF_NAME, "asn": asn,
+                                              "NEIGHBOR_ASN": NEIGHBOR_ASN, 
+                                              "NEIGHBOR_IP": NEIGHBOR_IP, 
+                                              "FABRIC_TYPE": source_fabric_type,
+                                              "SWITCH_ROLE": role,
+                                              "TRM_ENABLED": "false",
+                                              "BGP_MULTIHOP": ebgp_multihop,
+                                              "BGP_PASSWORD" : bgpPassword,
+                                              "BGP_AUTH_KEY_TYPE" : bgpAuthKeyType}))
+        insert_source_interfabric_connection(update, source_switch_id, destination_switch_id, link_type, asn, SOURCE_IP, NEIGHBOR_ASN, NEIGHBOR_IP)
+        Wrapper.print("MULTISITE_OVERLAY IFC : ==========Source Interfabric Oprertion is completed==========")
+        
+        #Now create Destination CSR device PTI
+        Wrapper.print("MULTISITE_OVERLAY IFC : Dest switch is CSR. Creating PTIs")
+        create_csr_pti(DEST_SERIAL_NUMBER,DEST_IF_NAME,NEIGHBOR_IP,SOURCE_IP,NEIGHBOR_ASN,asn, bgpPassword, bgpAuthKeyType)
+            
+        respObj.setSuccessRetCode()
+        return respObj
+    except respObjError as e:
+        return e.value
+        
+def insert_source_interfabric_connection(update, source_switch_id, dest_switch_id, link_type, asn, SOURCE_IP, NEIGHBOR_ASN, NEIGHBOR_IP):
+    try:
+        utilObj = Util()
+        extension_values = {}
+        extension_values["IF_NAME"] = SOURCE_IF_NAME
+        extension_values["NEIGHBOR_IP"] = NEIGHBOR_IP
+        extension_values["NEIGHBOR_ASN"] = NEIGHBOR_ASN
+        extension_values["asn"] = asn
+        interfab_connection = {}
+        interfab_connection["extension_type"] = 'MULTISITE_OVERLAY'
+        interfab_connection["template_name"] = 'csr_ext_evpn_multisite_overlay_setup'
+        interfab_connection["source_port"] = SOURCE_IF_NAME
+        interfab_connection["dest_port"] = DEST_IF_NAME
+        json_string = json.dumps(extension_values)
+        interfab_connection["template_values"] = json_string
+        InterfabricConnectionWrapper.createInterfabricConnection(interfab_connection, source_switch_id, dest_switch_id, update, link_type)
+        respObj = WrappersResp.getRespObj()
+        respObj.setSuccessRetCode()
+        return respObj
+    except respObjError as e:
+        return e.value
+
+def print_variables(asn, NEIGHBOR_ASN):
+        Wrapper.print("MULTISITE_OVERLAY IFC : Source fabric = %s, Source sn = %s, source switch = %s, source interface= %s" 
+                     % (SOURCE_FABRIC_NAME, SOURCE_SERIAL_NUMBER, SOURCE_SWITCH_NAME, SOURCE_IF_NAME))
+                      
+        Wrapper.print("MULTISITE_OVERLAY IFC : dest fabric = %s, dest sn = %s, dest switch = %s, dest interface= %s" 
+                     % (DEST_FABRIC_NAME, DEST_SERIAL_NUMBER, DEST_SWITCH_NAME, DEST_IF_NAME))
+        
+        Wrapper.print("MULTISITE_OVERLAY IFC : LINK_UUID = %s, source asn = %s, dest asn = %s" 
+                     % (LINK_UUID, asn, NEIGHBOR_ASN))
+
+def create_csr_pti(serial_number, if_name, ip, neighbor_ip, asn, neighbor_asn, eBGPPassword, eBGPAuthKeyType):
+    try:
+        utilObj = Util()
+        
+        Wrapper.print("MULTISITE_OVERLAY create_csr_pti : serial_number[%s] if_name[%s]"
+                      %(serial_number, if_name))
+                      
+        Wrapper.print("MULTISITE_OVERLAY create_csr_pti : ip[%s] neighbor_ip[%s] asn[%s] neighbor_asn[%s]"
+                      %(ip, neighbor_ip, asn, neighbor_asn))
+    
+        source = LINK_UUID
+        '''
+        utilObj.exeVal(PTIWrapper.createOrUpdate(serial_number, "INTERFACE",
+                                                 if_name, source,
+                                                 430,
+                                                 "csr_multisite_overlay_nve",
+                                                 {"INTF_NAME": if_name}))
+        '''
+    
+        wrappersResp = PTIWrapper.get(serial_number, 'SWITCH','SWITCH', source, 'csr_multisite_bgp_overlay')
+        if wrappersResp.isRetCodeSuccess():
+            ctrlPolicies = wrappersResp.getValue()
+            for policy in ctrlPolicies:
+                PTIWrapper.markDeleteInstance(policy.getPolicyId())
+                
+        utilObj.exeVal(PTIWrapper.create(serial_number, "SWITCH",
+                                        "SWITCH", source,
+                                        500,
+                                        "csr_multisite_bgp_overlay",
+                                        {"asn": asn,
+                                         "NEIGHBOR_ASN": neighbor_asn, 
+                                         "NEIGHBOR_IP": neighbor_ip,
+                                         "INTF_NAME": DEST_IF_NAME,
+                                         "BGP_PASSWORD": eBGPPassword,
+                                         "BGP_AUTH_KEY_TYPE" : eBGPAuthKeyType
+                                        }))
+                        
+    except respObjError as e:
+        return e.value
+
+
+def delete_csr_interfabric_PTIs(fabric_name, serial_number):
+    try:
+        source = LINK_UUID
+        
+        Wrapper.print("MULTISITE_OVERLAY CSR IFC DELETE : fabric_name [%s] Serial number is : [%s]" % (fabric_name,serial_number))
+        Wrapper.print("MULTISITE_OVERLAY CSR IFC DELETE : SOURCE is : %s" % (source))
+                
+        wrappersResp = PTIWrapper.get(serial_number, source)
+        if wrappersResp.isRetCodeSuccess():
+            ctrlPolicies = wrappersResp.getValue()
+            for policy in ctrlPolicies:
+                PTIWrapper.markDeleteInstance(policy.getPolicyId())
+                
+    except respObjError as e:
+        return e.value
+  
+def delete_interfabric_PTIs(serial_number):
+    try:
+        source = LINK_UUID
+        Wrapper.print("MULTISITE_OVERLAY IFC : SOURCE is : %s" % (source))
+        wrappersResp = PTIWrapper.get(serial_number, source)
+        if wrappersResp.isRetCodeSuccess():
+            ctrlPolicies = wrappersResp.getValue()
+            for policy in ctrlPolicies:
+                PTIWrapper.markDeleteInstance(policy.getPolicyId())
+    except respObjError as e:
+        return e.value
+        
+        
+def validate_delete(source_inter_fabric_connection_id, dest_inter_fabric_connection_id):
+    try:
+        respObj = WrappersResp.getRespObj()
+        source_extended = Util.exe(InterfabricConnectionWrapper.isInterfabricExtended(source_inter_fabric_connection_id))
+        destination_extended = Util.exe(InterfabricConnectionWrapper.isInterfabricExtended(dest_inter_fabric_connection_id))
+   
+        if source_extended or destination_extended:
+            errorMsg = ("Delete link is not allowed as overlay extension exists for link interface name [%s], switch name [%s] "
+            " <--> interface name [%s], switch name [%s]." %(SOURCE_IF_NAME, SOURCE_SWITCH_NAME, DEST_IF_NAME, DEST_SWITCH_NAME))
+            respObj.addErrorReport(("InterFabricLink"), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+       
+        Wrapper.print("No active overlay extension present")
+       
+        respObj.setSuccessRetCode()
+        return respObj
+           
+    except respObjError as e:
+        return e.value
+        
+def validate_delete(source_inter_fabric_connection_id, dest_inter_fabric_connection_id):
+    try:
+        source_extended = destination_extended = False
+        respObj = WrappersResp.getRespObj()
+        if source_inter_fabric_connection_id != 0:
+            source_extended = Util.exe(InterfabricConnectionWrapper.isInterfabricExtended(source_inter_fabric_connection_id))
+        
+        if dest_inter_fabric_connection_id != 0:
+            destination_extended = Util.exe(InterfabricConnectionWrapper.isInterfabricExtended(dest_inter_fabric_connection_id))
+   
+        if source_extended or destination_extended:
+            errorMsg = ("Delete link is not allowed as overlay extension exists for link interface name [%s], switch name [%s] "
+            " <--> interface name [%s], switch name [%s]." %(SOURCE_IF_NAME, SOURCE_SWITCH_NAME, DEST_SWITCH_NAME, DEST_IF_NAME))
+            respObj.addErrorReport(("InterFabricLink"), errorMsg)
+            respObj.setFailureRetCode()
+            return respObj
+       
+        Wrapper.print("No active overlay extension present")
+       
+        respObj.setSuccessRetCode()
+        return respObj
+           
+    except respObjError as e:
+        return e.value
+def delete():
+    try:
+        respObj = WrappersResp.getRespObj()
+        Wrapper.print("==========CSR_MULTISITE_OVERLAY_DELETE==========")
+
+        # get ASN for source fabric
+        helperResp = Helper.getFabricAsn(SOURCE_FABRIC_NAME)
+        if helperResp.isRetCodeSuccess():
+            asn = helperResp.getValue()
+        else:
+            Wrapper.print("Invalid ASN for Fabric %s" %(SOURCE_FABRIC_NAME))
+            return helperResp
+            
+        # get ASN for dest fabric
+        helperResp = Helper.getFabricAsn(DEST_FABRIC_NAME)
+        if helperResp.isRetCodeSuccess():
+            NEIGHBOR_ASN = helperResp.getValue()
+        else:
+            Wrapper.print("Invalid ASN for Fabric %s" %(DEST_FABRIC_NAME))
+            return helperResp
+            
+        print_variables(asn, NEIGHBOR_ASN)
+        source_fabric_type    =  Util.exe(Helper.getFabricType(SOURCE_FABRIC_NAME))
+        dest_fabric_type      =  Util.exe(Helper.getFabricType(DEST_FABRIC_NAME))
+        # set SOURCE to LINK_UUID
+        SOURCE = LINK_UUID
+        source_switch_id =  Util.exe(InterfabricConnectionWrapper.getLanSwitchId(SOURCE_SERIAL_NUMBER));
+        destination_switch_id =  Util.exe(InterfabricConnectionWrapper.getLanSwitchId(DEST_SERIAL_NUMBER));
+        
+        Wrapper.print("MULTISITE_OVERLAY IFC DELETE : source switch Id is : %d" % (source_switch_id))
+        Wrapper.print("MULTISITE_OVERLAY IFC DELETE : dest switch Id is : %d" % (destination_switch_id))
+        
+       
+        source_inter_fabric_connection_id = Util.exe(InterfabricConnectionWrapper.getInterfabricId(source_switch_id, SOURCE_IF_NAME,
+                                                              destination_switch_id, DEST_IF_NAME))
+        Wrapper.print("MULTISITE_OVERLAY SOURCE IFC DELETE: Source Interfabric Connection Id is : %d" % (source_inter_fabric_connection_id))
+        
+        dest_inter_fabric_connection_id = Util.exe(InterfabricConnectionWrapper.getInterfabricId(destination_switch_id, DEST_IF_NAME,
+                                                              source_switch_id, SOURCE_IF_NAME))
+        Wrapper.print("MULTISITE_OVERLAY SOURCE IFC DELETE: Dest Interfabric Connection Id is : %d" % (dest_inter_fabric_connection_id))
+        
+        Util.exe(validate_delete(source_inter_fabric_connection_id, dest_inter_fabric_connection_id))
+        Wrapper.print("MULTISITE_OVERLAY IFC DELETE ... delete validation success")
+        
+        if source_inter_fabric_connection_id != 0:
+            delete_interfabric_PTIs(SOURCE_SERIAL_NUMBER)
+            InterfabricConnectionWrapper.deleteInterfabric(source_inter_fabric_connection_id)
+       
+        if dest_inter_fabric_connection_id != 0:
+            delete_interfabric_PTIs(DEST_SERIAL_NUMBER)
+            InterfabricConnectionWrapper.deleteInterfabric(dest_inter_fabric_connection_id)
+            
+        delete_csr_interfabric_PTIs(DEST_FABRIC_NAME, DEST_SERIAL_NUMBER) 
+           
+        return respObj
+    except respObjError as e:
+        return e.value
+##
