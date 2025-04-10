@@ -1,0 +1,81 @@
+##template properties
+name =AI_Fabric_QOS_25G;
+description = System QoS Marking and Queuing policy for N9K Cloudscale Series HW with PFC and ECN for systems with predominantly 25G uplinks;
+tags =QoS_AIML;
+userDefined = false;
+supportedPlatforms = N9K;
+templateType = POLICY;
+templateSubType = DEVICE;
+contentType = TEMPLATE_CLI;
+implements = ;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+
+#    Copyright (c) 2023 by Cisco Systems, Inc.
+#    All rights reserved.
+
+@(IsMandatory=false, DisplayName="Disable Watch Dog Interval")
+boolean DISABLE_WATCHDOG_INTERVAL {
+defaultValue = false;
+};
+
+@(IsMandatory=false, DisplayName="Default queue MTU")
+integer DEFAULT_QUEUE_MTU {
+defaultValue = 9216;
+};
+
+##
+##template content
+
+class-map type qos match-any ROCEv2 
+  match dscp 26
+class-map type qos match-any CNP 
+  match dscp 48
+ 
+policy-map type qos QOS_CLASSIFICATION 
+  class ROCEv2
+    set qos-group 3
+  class CNP
+    set qos-group 7
+  class class-default
+    set qos-group 0
+
+policy-map type queuing QOS_EGRESS_PORT
+  class type queuing c-out-8q-q6
+    bandwidth remaining percent 0
+  class type queuing c-out-8q-q5
+    bandwidth remaining percent 0
+  class type queuing c-out-8q-q4
+    bandwidth remaining percent 0
+  class type queuing c-out-8q-q3
+    bandwidth remaining percent 50
+    random-detect minimum-threshold 100 kbytes maximum-threshold 700 kbytes drop-probability 40 weight 0 ecn
+  class type queuing c-out-8q-q2
+    bandwidth remaining percent 0
+  class type queuing c-out-8q-q1
+    bandwidth remaining percent 0
+  class type queuing c-out-8q-q-default
+    bandwidth remaining percent 50
+  class type queuing c-out-8q-q7
+    priority level 1
+
+policy-map type network-qos qos_network
+  class type network-qos c-8q-nq3
+    pause pfc-cos 3     
+    mtu 4200
+  class type network-qos c-8q-nq-default
+    mtu $$DEFAULT_QUEUE_MTU$$
+
+if ($$DISABLE_WATCHDOG_INTERVAL$$ == "true") {
+}
+else {
+priority-flow-control watch-dog-interval on
+}
+
+system qos
+  service-policy type network-qos qos_network
+  service-policy type queuing output QOS_EGRESS_PORT
+##
