@@ -1,0 +1,28 @@
+##template properties
+name =DLB_mac_address;
+description = DLB Mac Address CLI Template;
+tags =internal_policy;
+userDefined = false;
+supportedPlatforms = N9K;
+templateType = POLICY;
+templateSubType = DEVICE;
+contentType = TEMPLATE_CLI;
+implements = ;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+#    Copyright (c) 2024 by Cisco Systems, Inc.
+#    All rights reserved.
+
+@(IsMandatory=true, DisplayName="DLB MAC Address", Description="MAC Address shared by DLB interfaces")
+string DLB_MAC;
+
+##
+##template content
+
+hardware profile dlb
+  mac-address $$DLB_MAC$$
+
+##

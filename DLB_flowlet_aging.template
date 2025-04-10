@@ -1,0 +1,28 @@
+##template properties
+name =DLB_flowlet_aging;
+description = DLB Flowlet Aging CLI Template;
+tags =internal_policy;
+userDefined = false;
+supportedPlatforms = N9K;
+templateType = POLICY;
+templateSubType = DEVICE;
+contentType = TEMPLATE_CLI;
+implements = ;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+#    Copyright (c) 2024 by Cisco Systems, Inc.
+#    All rights reserved.
+
+@(IsMandatory=true, DisplayName="Flowlet Aging", Description="Period in microseconds (1-2000000)")
+integer FLOWLET_AGING;
+
+##
+##template content
+
+hardware profile dlb
+  flowlet-aging $$FLOWLET_AGING$$
+
+##

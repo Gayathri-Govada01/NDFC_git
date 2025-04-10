@@ -1,0 +1,28 @@
+##template properties
+name =DLB_intf;
+description = DLB Interface CLI Template;
+tags =internal_policy;
+userDefined = false;
+supportedPlatforms = N9K;
+templateType = POLICY;
+templateSubType = DEVICE;
+contentType = TEMPLATE_CLI;
+implements = ;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+#    Copyright (c) 2024 by Cisco Systems, Inc.
+#    All rights reserved.
+
+@(IsMandatory=true, DisplayName="DLB Interfaces", Description="Dynamic Load Balancing Interface List")
+string DLB_INTERFACES;
+
+##
+##template content
+
+hardware profile dlb
+  dlb-interface  $$DLB_INTERFACES$$
+
+##

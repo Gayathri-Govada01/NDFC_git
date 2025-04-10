@@ -1,0 +1,24 @@
+##template properties
+name =DLB_packet_lb;
+description = DLB Packet Load Balancing Template;
+tags =internal_policy;
+userDefined = false;
+supportedPlatforms = N9K;
+templateType = POLICY;
+templateSubType = DEVICE;
+contentType = TEMPLATE_CLI;
+implements = ;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+#    Copyright (c) 2024 by Cisco Systems, Inc.
+#    All rights reserved.
+
+##
+##template content
+
+hardware profile dlb
+  mode per-packet
+##

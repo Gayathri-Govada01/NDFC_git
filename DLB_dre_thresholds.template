@@ -1,0 +1,40 @@
+##template properties
+name =DLB_dre_thresholds;
+description = DLB DRE Threshold CLI Template;
+tags =internal_policy;
+userDefined = false;
+supportedPlatforms = N9K;
+templateType = POLICY;
+templateSubType = DEVICE;
+contentType = TEMPLATE_CLI;
+implements = ;
+dependencies = ;
+published = false;
+imports = ;
+##
+##template variables
+#    Copyright (c) 2024 by Cisco Systems, Inc.
+#    All rights reserved.
+
+@(IsMandatory=true, DisplayName="DRE Threshold Level 1", Description="All Dynamic Rate Estimator (DRE) must add to 100")
+integer DRE_L1;
+@(IsMandatory=true, DisplayName="DRE Threshold Level 2")
+integer DRE_L2;
+@(IsMandatory=true, DisplayName="DRE Threshold Level 3")
+integer DRE_L3;
+@(IsMandatory=true, DisplayName="DRE Threshold Level 4")
+integer DRE_L4;
+@(IsMandatory=true, DisplayName="DRE Threshold Level 5")
+integer DRE_L5;
+@(IsMandatory=true, DisplayName="DRE Threshold Level 6")
+integer DRE_L6;
+@(IsMandatory=true, DisplayName="DRE Threshold Level 7")
+integer DRE_L7;
+
+##
+##template content
+
+hardware profile dlb
+  dre-thresholds level-1 $$DRE_L1$$ level-2 $$DRE_L2$$ level-3 $$DRE_L3$$ level-4 $$DRE_L4$$ level-5 $$DRE_L5$$ level-6 $$DRE_L6$$ level-7 $$DRE_L7$$
+
+##
